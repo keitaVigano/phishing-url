@@ -24,11 +24,13 @@ library(breakDown)
 library(gridExtra)
 
 # Importazione dati e prime analisi ---------------------------------------
+
 train <- read.csv("train.csv")
 
 # Trasformare le variabili binarie nel dataset
 binary_vars <- sapply(train, function(x) all(x %in% c(0, 1)))
 train[binary_vars] <- lapply(train[binary_vars], factor, levels = c(0, 1), labels = c(0, 1))
+train$status <- factor(train$status)
 
 # Rimozione variabili problematiche
 
