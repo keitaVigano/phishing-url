@@ -23,7 +23,7 @@ library(DALEX)
 library(breakDown)
 library(gridExtra)
 
-# Importazione dati e prime analisi ---------------------------------------
+# Importazione dati ---------------------------------------
 
 train <- read.csv("train.csv")
 
@@ -32,28 +32,25 @@ binary_vars <- sapply(train, function(x) all(x %in% c(0, 1)))
 train[binary_vars] <- lapply(train[binary_vars], factor, levels = c(0, 1), labels = c(0, 1))
 train$status <- factor(train$status)
 
-# Rimozione variabili problematiche
+# Test
+test <- read.csv("test.csv")
+
+# Trasformare le variabili binarie nel dataset
+binary_vars <- sapply(test, function(x) all(x %in% c(0, 1)))
+test[binary_vars] <- lapply(test[binary_vars], factor, levels = c(0, 1), labels = c(0, 1))
+test$status <- factor(test$status)
+
+# Distribuzione variabile target ------------------------------------------
+class(train$status)
+table(train$status) / nrow(train)
+
+# Funzione per il grafico
 
 plot_gg1 = function(column){
   ggplot(data = train, mapping = aes(x = {{column}})) +
     geom_bar(position = 'dodge') +
     scale_fill_manual('Legenda', values = c("lightblue", "blue"))
 }
-
-# Crea una lista di grafici ggplot
-p1 <- plot_gg1(statistical_report)
-p2 <- plot_gg1(ratio_nullHyperlinks)
-p3 <- plot_gg1(ratio_intErrors)
-p4 <- plot_gg1(ratio_intRedirection)
-p5 <- plot_gg1(submit_email)
-p6 <- plot_gg1(sfh)
-
-# Combina i grafici in una griglia
-grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
-
-# Distribuzione variabile target ------------------------------------------
-class(train$status)
-table(train$status) / nrow(train)
 
 plot_gg = function(column){
   ggplot(data = train, mapping = aes(x = {{column}}, fill = status)) +
@@ -66,8 +63,21 @@ plot_gg(status) +
 
 # Dati mancanti -----------------------------------------------------------
 
-#Eliminazioni delle variabili superflue
+# Variabili grafiche
+# Crea una lista di grafici ggplot
+p1 <- plot_gg1(statistical_report)
+p2 <- plot_gg1(ratio_nullHyperlinks)
+p3 <- plot_gg1(ratio_intErrors)
+p4 <- plot_gg1(ratio_intRedirection)
+p5 <- plot_gg1(submit_email)
+p6 <- plot_gg1(sfh)
+
+# Combina i grafici in una griglia
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
+
+#Eliminazioni delle variabili problematiche
 train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url ))
+test <- subset(test, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url ))
 
 # Conto valori mancanti per variabile per fare grafico 
 missing_data <- train %>% 
@@ -78,8 +88,18 @@ missingness = aggr(train,
                    col=c('navyblue','yellow'),numbers=TRUE,sortVars=TRUE,
                    cex.axis=.7,gap=2) 
 
-# MODEL SELCTION ----------------------------------------------------------
+# Test 
+missing_data <- test %>% 
+  summarise_all(function(x) sum(is.na(x) | x == "")) %>% 
+  gather(variable, missing_count)
 
+missingness = aggr(test,
+                   col=c('navyblue','yellow'),numbers=TRUE,sortVars=TRUE,
+                   cex.axis=.7,gap=2) 
+
+# Model selection ----------------------------------------------------------
+
+# Tree
 cvCtrl = trainControl(method = "cv", number=10, search="grid", classProbs = TRUE)
 rpartTuneCvA = train(status ~ ., data = train, method = "rpart",
                      tuneLength = 10,
@@ -134,7 +154,7 @@ selected = c("status","google_index", "page_rank", "nb_hyperlinks", "domain_age"
              "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
 
 train_selected = train[,selected]
-#validation_selected = validation[,selected]
+test_selected = test[,selected]
 
 # Verifica Separation -----------------------------------------------------
 
@@ -178,3 +198,4 @@ plot_all_variables_in_grids <- function(data, target_var) {
 
 # Utilizzo della funzione
 plot_all_variables_in_grids(train_selected, "status")
+
