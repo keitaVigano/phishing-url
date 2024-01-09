@@ -43,6 +43,13 @@ binary_vars <- sapply(test, function(x) all(x %in% c(0, 1)))
 test[binary_vars] <- lapply(test[binary_vars], factor, levels = c(0, 1), labels = c(0, 1))
 test$status <- factor(test$status)
 
+# Score Set
+Trainindex = createDataPartition(y = test$status, p = .95, list = FALSE)
+test = test[Trainindex,]
+score = test[-Trainindex,]
+
+
+
 # Distribuzione variabile target ------------------------------------------
 class(train$status)
 table(train$status) / nrow(train)
@@ -158,6 +165,8 @@ selected = c("status","google_index", "page_rank", "nb_hyperlinks", "domain_age"
 
 train = train[,selected]
 test= test[,selected]
+score=score[,selected]
+score <- subset(score, select = -c(status))
 
 # Verifica Separation -----------------------------------------------------
 
@@ -206,24 +215,25 @@ plot_all_variables_in_grids(train, "status")
 # Step 1 ------------------------------------------------------------------
 colnames(train)[colnames(train)=="status"] <- "target" 
 colnames(test)[colnames(test)=="status"] <- "target" 
+train$target <- factor(train$target, levels = c("phishing", "legitimate"))
+test$target <- factor(test$target, levels = c("phishing", "legitimate"))
 
 # GLM (Logistic Classifier) -----------------------------------------------
-
 set.seed(9999)
-ctrl = trainControl(method = "boot", # prof. use method = "cv" - Carlotta use method = "boot"
+ctrl = trainControl(method = "cv",
                     number = 10,
-                    search = "grid", # prof. not use search in GLM - Carlotta yes 
-                    classProbs = TRUE) 
-#                       summaryFunction = twoClassSummary) # Carlotta not use summaryFunction in GLM - prof. yes 
+                    search = "grid", 
+                    classProbs = TRUE,
+                    summaryFunction = twoClassSummary) 
 
-glm = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-            data = train, # !!! adjust/modify/change/adapt with our train data !!!
+glm = train(target ~ ., 
+            data = train, 
             method = "glm", 
-            preProcess = c("corr", "nzv"), # we can also add BoxCox as follow: preProcess = c("corr", "nzv", "BoxCox")
+            preProcess = c("corr", "nzv"),
             trControl = ctrl,
-            #            tuneLength = 5, ??? No if we use (like Carlotta do) method = "boot" ???
-            #            trace = TRUE, # Carlotta not use trace in GLM - prof. yes
-            metric = "Sens") # n.b.: prof. use metric = "ROC"
+            tuneLength = 5, 
+            trace = TRUE,
+            metric = "Sens") 
 
 glm 
 confusionMatrix(glm)
@@ -232,24 +242,24 @@ glmpred = predict(glm, test)
 glmpred_p = predict(glm, test, type = c("prob"))
 confusionMatrix(glmpred, test$target)
 
+
+
+
 # K-Nearest Neightbour ----------------------------------------------------
 
 set.seed(9999)
-ctrl = trainControl(method = "boot", # prof. use method = "cv" - Carlotta use method = "boot"
+ctrl = trainControl(method = "cv", 
                     number = 10,
-                    search = "grid", # prof. not use search in KNN - Carlotta yes
+                    search = "grid",
                     classProbs = TRUE,
                     summaryFunction = twoClassSummary) 
 
-#grid = expand.grid(k = seq(5, 20, 3)) # Carlotta not use grid = expand.grid(k = seq(from = ..., to = ..., by = ...)) in KNN - prof. yes 
-
 knn = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-            data = train, # !!! adjust/modify/change/adapt with our train data !!!
+            data = train,
             method = "knn",
             trControl = ctrl,
-            tuneLength = 10, # prof. use tuneLength = 5 - Carlotta use tuneLength = 10
-            #            tuneGrid = grid, # Carlotta not use grid in KNN , so neither tuneGrid - prof. yes
-            preProcess = c("center", "scale", "corr", "nzv"), # n.b.: prof. use only preProcess = c("scale", "corr")
+            tuneLength = 10, 
+            preProcess = c("center", "scale", "corr", "nzv"), 
             metric = "Sens") 
 knn
 plot(knn)
@@ -262,26 +272,22 @@ confusionMatrix(knnpred, test$target)
 # LASSO -------------------------------------------------------------------
 
 set.seed(9999)
-ctrl = trainControl(method = "boot", # prof. use method = "cv" - Carlotta use method = "boot"
+ctrl = trainControl(method = "cv", 
                     number = 10,
                     classProbs = TRUE,
-                    search = "grid", # prof. not use search in LASSO - Carlotta yes
+                    search = "grid", 
                     summaryFunction = twoClassSummary)
 
-# Carlotta not use grid = expand.grid(.alpha = 1, .lambda = seq(0, 1, by = 0.01)) in LASSO - prof. yes
-#grid = expand.grid(.alpha = 1,
-#                   .lambda = seq(0, 1, by = 0.01))
 
-lasso = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-              data = train, # !!! adjust/modify/change/adapt with our train data !!!
+
+lasso = train(target ~ ., 
+              data = train, 
               method = "glmnet",
-              #              family = "binomial", # Carlotta not use family = "binomial" in LASSO - prof. yes
-              preProcess = c("corr", "nzv"), # prof. not use preProcess in LASSO - Carlotta yes
+              family = "binomial", 
+              preProcess = c("corr", "nzv","center", "scale"), 
               metric = "Sens",
               trControl = ctrl,
-              tuneLength = 10) # prof. use tuneLength = 5 - Carlotta use tuneLength = 10
-#              tuneGrid = grid) # Carlotta not use grid in LASSO , so neither tuneGrid - prof. yes
-
+              tuneLength = 10) 
 lasso
 plot(lasso)
 confusionMatrix(lasso)
@@ -293,19 +299,19 @@ confusionMatrix(lassopred, test$target)
 # PLS ---------------------------------------------------------------------
 
 set.seed(9999)
-ctrl = trainControl(method = "boot", # prof. use method = "cv" - Carlotta use method = "boot"
+ctrl = trainControl(method = "cv", 
                     number = 10,
-                    search = "grid", # prof. not use search in PLS - Carlotta yes
+                    search = "grid", 
                     classProbs = TRUE,
                     summaryFunction = twoClassSummary)
 
-pls = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-            data = train, # !!! adjust/modify/change/adapt with our train data !!!
+pls = train(target ~ .,
+            data = train, 
             method = "pls",
-            preProcess = c("center"), # prof. not use preProcess in PLS - Carlotta yes
+            preProcess = c("corr", "nzv","center", "scale"), 
             metric = "Sens",
             trControl = ctrl,
-            tuneLength = 10) # prof. use tuneLength = 5 - Carlotta use tuneLength = 10
+            tuneLength = 10) 
 
 pls
 plot(pls)
@@ -318,18 +324,18 @@ confusionMatrix(plspred, test$target)
 # Naive Bayes -------------------------------------------------------------
 
 set.seed(9999)
-ctrl = trainControl(method = "boot", # prof. use method = "cv" - Carlotta use method = "boot"
+ctrl = trainControl(method = "cv", 
                     number = 10,
-                    search = "grid", # prof. not use search in Naive Bayes - Carlotta yes
+                    search = "grid", 
                     classProbs = TRUE,
                     summaryFunction = twoClassSummary)
 
-naivebayes = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-                   data = train, # !!! adjust/modify/change/adapt with our train data !!!
+naivebayes = train(target ~ ., 
+                   data = train, 
                    method = "naive_bayes",
                    trControl = ctrl,
-                   tuneLength = 10, # prof. use tuneLength = 5 - Carlotta use tuneLength = 10
-                   preProcess = c("corr", "nzv"), # prof. not use preProcess in Naive Bayes - Carlotta yes
+                   tuneLength = 10,
+                   preProcess = c("corr", "nzv"), 
                    metric = "Sens")
 
 naivebayes
@@ -349,23 +355,21 @@ ctrl = trainControl(method = "cv",
                     classProbs = TRUE,
                     summaryFunction = twoClassSummary)
 
-tree = train(target ~ .,# !!! adjust/modify/change/adapt with our target !!!
-             data = train, # !!! adjust/modify/change/adapt with our train data !!!
+tree = train(target ~ .,
+             data = train, 
              method = "rpart",
-             #             metric = "Sens",
+             metric = "Sens",
              tuneLength = 10,
              trControl = ctrl)
-# !!! N.B.: Best accuracy using best cp !!!
+
 tree
-# Final Model
 getTrainPerf(tree)
 plot(tree)
-# !!! N.B.: Var Imp of the Tree - With the Tree choose most important variables !!!
-varImp(object = tree)
-plot(varImp(object = tree), main = "Train Tuned - Variable Importance")
-# !!! N.B.: Object saved !!!
+
+
 ls(tree)
 ls(tree$finalModel)
+
 # !!! N.B.: Select only important variables !!!
 vi = as.data.frame(tree$finalModel$variable.importance)
 vi
@@ -375,37 +379,39 @@ viname = row.names(vi)
 viname
 
 # Decision Tree (Carlotta version) ----------------------------------------
-
-tree_rpart = rpart(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-                   data = train, # !!! adjust/modify/change/adapt with our train data !!!
+tree_rpart = rpart(target ~ ., 
+                   data = train, 
                    method = "class",
                    cp = 0, 
                    minsplit = 1)
-
 tree_rpart$cptable
 rpart.plot(tree_rpart, type = 4, extra = 1)
-confusionMatrix(tree_rpart)
 
-tree_pruned = prune(tree_rpart,
-                    cp = tree_rpart$cptable[which.min(tree_rpart$cptable[,"xerror"]),"CP"])
-
+tree_pruned = prune(tree_rpart, cp=  
+                      tree_rpart$cptable[which.min(tree_rpart$cptable[,"xerror"]),"CP"])
 rpart.plot(tree_pruned, type = 4, extra = 1)
-confusionMatrix(tree_pruned)
 
-treepred = predict(tree_pruned, test)
-treepred_p = predict(tree_pruned, test, type = c("prob"))
-confusionMatrix(treepred, test$target)
+treePred_pruned_p = predict(tree_pruned, test, type = c("prob"))
+treePred_pruned = predict(tree_pruned, test, type = c("class"))
+
+confusionMatrix(treePred_pruned, test$target)
+
+
+
+
+
+
 
 # Bagging -----------------------------------------------------------------
-
+set.seed(9999)
 ctrl = trainControl(method = "boot",
                     number = 10,
                     searc = "grid", 
                     summaryFunction = twoClassSummary, 
                     classProbs = TRUE)
 
-bagging = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-                data = train, # !!! adjust/modify/change/adapt with our train data !!!
+bagging = train(target ~ ., 
+                data = train, 
                 method = "treebag",
                 ntree = 250,
                 trControl = ctrl)
@@ -413,6 +419,10 @@ bagging = train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
 bagging
 plot(bagging)
 confusionMatrix(bagging)
+
+baggpred = predict(bagging, test)
+baggpred_p = predict(bagging, test, type = c("prob"))
+confusionMatrix(baggpred, test$target)
 
 # Gradient Boosting -------------------------------------------------------
 
@@ -428,8 +438,8 @@ gbm_tune = expand.grid(n.trees = 500,
                        shrinkage = 0.1,
                        n.minobsinnode = 10)
 
-gb = train(target ~., # !!! adjust/modify/change/adapt with our target !!!
-           data = train, # !!! adjust/modify/change/adapt with our train data !!!
+gb = train(target ~., 
+           data = train, 
            method = "gbm",
            tuneLength = 10,
            metric ="Sens",
@@ -442,29 +452,33 @@ confusionMatrix(gb)
 
 gbpred = predict(gb, test)
 gbpred_p = predict(gb, test, type = c("prob"))
-confusionMatrix(gbpred_p, test$target)
-
+confusionMatrix(gbpred, test$target)
 
 # Random Forest -----------------------------------------------------------
 
 set.seed(9999)
-ctrl <- trainControl(method = "boot", # prof. use method = "cv" - Carlotta use method = "boot"
+ctrl <- trainControl(method = "cv",
                      number = 10,
                      search = "grid",
                      classProbs = TRUE,
                      summaryFunction = twoClassSummary)
 
-rf <- train(target ~ ., # !!! adjust/modify/change/adapt with our target !!!
-            data = train, # !!! adjust/modify/change/adapt with our train data !!!
+rf <- train(target ~ ., 
+            data = train, 
             method = "rf",
             metric = "Sens",
-            tuneLength = 10,# prof. use tuneLength = 5 - Carlotta use tuneLength = 10
+            tuneLength = 10,
             trControl = ctrl,
-            verbose = FALSE) # prof. not use verbose in Random Forest - Carlotta yes
+            verbose = FALSE) 
 
 rf
 plot(rf)
 confusionMatrix(rf)
+
+rfpred = predict(rf, test)
+rfpred_p = predict(rf, test, type = c("prob"))
+confusionMatrix(rfpred, test$target)
+
 
 # Permutation Importance
 vImp = varImp(rf)
@@ -476,3 +490,104 @@ head(vImp)
 # Select covariate with Importance > 30% than most important
 vImp2 = vImp[vImp$Overall>30,]
 head(vImp2)
+
+# NN ----------------------------------------------------------------------
+
+cvCtrl = trainControl(method = "boot", 
+                      number=10, searc="grid", 
+                      summaryFunction = twoClassSummary, 
+                      classProbs = TRUE)
+
+#nn 
+nn = train(target ~., data=train,
+           method = "nnet",
+           preProcess = c("scale", "corr", "nzv"), 
+           tuneLength = 5, metric="Sens", trControl=cvCtrl, trace = TRUE,
+           maxit = 100)
+
+plot(nn)
+print(nn)
+getTrainPerf(nn)
+
+confusionMatrix(nn)
+
+nnPred_p = predict(nn, test, type = c("prob"))
+nnPred = predict(nn, test)
+
+confusionMatrix(nnPred, test$target)
+
+#nn tuned
+cvCtrl = trainControl(method = "cv", 
+                      number=10, 
+                      searc="grid", 
+                      summaryFunction = twoClassSummary, 
+                      classProbs = TRUE)
+
+tunegrid = expand.grid(size=c(1:5), decay = c(0.001, 0.01, 0.05 , .1, .3))
+
+nn_tuned = train(target ~., data=train,
+                 method = "nnet",
+                 preProcess =  c("scale", "corr", "nzv"), 
+                 tuneLength = 10, 
+                 metric= "Sens", 
+                 trControl=cvCtrl, 
+                 tuneGrid=tunegrid,
+                 trace = TRUE,
+                 maxit = 300)
+
+plot(nn_tuned)
+print(nn_tuned)
+getTrainPerf(nn_tuned)
+
+confusionMatrix(nn_tuned)
+
+nn_tunedPred_p = predict(nn_tuned, test, type = c("prob"))
+nn_tunedPred = predict(nn_tuned, test)
+
+confusionMatrix(nn_tunedPred, test$target)
+
+
+# Stacking ----------------------------------------------------------------
+
+cvCtrl = trainControl(method = "cv", 
+                      number=10, 
+                      searc="grid", 
+                      summaryFunction = twoClassSummary, 
+                      classProbs = TRUE)
+
+model_list = caretList(target ~.,
+                       data = train,
+                       trControl = cvCtrl,
+                       methodList = c("glm", "knn", "naive_bayes", "rf", "nnet")
+)
+
+glm_ensemble = caretStack(
+  model_list,
+  method="glm",
+  metric="Sens",
+  trControl = cvCtrl
+)
+
+model_preds = lapply(model_list, predict, newdata = test, type="prob")
+model_preds2 = model_preds
+model_preds$ensemble = predict(glm_ensemble, newdata = test, type="prob")
+model_preds2$ensemble = predict(glm_ensemble, newdata = test)
+CF = coef(glm_ensemble$ens_model$finalModel)[-1]
+colAUC(model_preds$ensemble, test$target)
+confusionMatrix(model_preds2$ensemble, test$target)
+
+gbm_ensemble = caretStack(
+  model_list,
+  method="gbm",
+  metric="Sens",
+  trControl = cvCtrl
+)
+
+model_preds3 = model_preds
+model_preds4 = model_preds
+model_preds3$ensemble = predict(gbm_ensemble, newdata=train, type="prob")
+model_preds4$ensemble = predict(gbm_ensemble, newdata=train,  type="prob")
+
+
+colAUC(model_preds3$ensemble, test$target)
+confusionMatrix(model_preds4$ensemble, test$target)
