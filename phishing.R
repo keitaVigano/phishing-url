@@ -21,6 +21,7 @@ library(pls)
 library(randomForest)
 library(reshape2)
 library(ROCR)
+library(pROC)
 library(rpart)
 library(rpart.plot)
 library(tidyverse)
@@ -114,7 +115,7 @@ test <- subset(test, select = -c(statistical_report, ratio_nullHyperlinks, ratio
 
 # Model selection ----------------------------------------------------------
 #Boruta
-boruta.train = Boruta(status ~., data = train, doTrace = 1)
+boruta.train = Boruta(target ~., data = train, doTrace = 1)
 plot(boruta.train, xlab = "features", xaxt = "n", ylab="MDI")
 
 print(boruta.train)
@@ -126,15 +127,84 @@ table(boruta.metrics$decision)
 vi_bo = subset(boruta.metrics, decision == "Confirmed")
 head(vi_bo)  
 viname_bo = rownames(vi_bo)
+vars_list <- c(
+  "length_url",
+  "length_hostname",
+  "ip",
+  "nb_dots",
+  "nb_hyphens",
+  "nb_at",
+  "nb_qm",
+  "nb_and",
+  "nb_eq",
+  "nb_underscore",
+  "nb_percent",
+  "nb_slash",
+  "nb_colon",
+  "nb_semicolumn",
+  "nb_space",
+  "nb_www",
+  "nb_com",
+  "nb_dslash",
+  "http_in_path",
+  "https_token",
+  "ratio_digits_url",
+  "ratio_digits_host",
+  "port",
+  "tld_in_path",
+  "tld_in_subdomain",
+  "abnormal_subdomain",
+  "nb_subdomains",
+  "prefix_suffix",
+  "random_domain",
+  "shortening_service",
+  "nb_redirection",
+  "length_words_raw",
+  "char_repeat",
+  "shortest_words_raw",
+  "shortest_word_host",
+  "shortest_word_path",
+  "longest_words_raw",
+  "longest_word_host",
+  "longest_word_path",
+  "avg_words_raw",
+  "avg_word_host",
+  "avg_word_path",
+  "phish_hints",
+  "domain_in_brand",
+  "brand_in_path",
+  "suspecious_tld",
+  "statistical_report",
+  "nb_hyperlinks",
+  "ratio_intHyperlinks",
+  "ratio_extHyperlinks",
+  "nb_extCSS",
+  "ratio_extRedirection",
+  "ratio_extErrors",
+  "login_form",
+  "external_favicon",
+  "links_in_tags",
+  "ratio_intMedia",
+  "ratio_extMedia",
+  "safe_anchor",
+  "empty_title",
+  "domain_in_title",
+  "domain_with_copyright",
+  "whois_registered_domain",
+  "domain_registration_length",
+  "domain_age",
+  "web_traffic",
+  "dns_record",
+  "google_index",
+  "page_rank",'target'
+)
+
 
 # Scelta delle features da mantenere in analisi
-selected = c("target","google_index", "page_rank", "nb_hyperlinks", "domain_age", "web_traffic", "nb_www", 
+selected20 = c("target","google_index", "page_rank", "nb_hyperlinks", "domain_age", "web_traffic", "nb_www", 
              "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
-selected_s=c("google_index", "page_rank", "nb_hyperlinks", "domain_age", "web_traffic", "nb_www", 
-                        "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
-train_selected = train[,selected]
-test_selected= test[,selected]
-score_selected=score[,selected_s]
+train_selected = train[,vars_list]
+test_selected= test[,vars_list]
 
 
 # Verifica Separation -----------------------------------------------------
@@ -181,8 +251,8 @@ plot_all_variables_in_grids <- function(data, target_var) {
 plot_all_variables_in_grids(train, "status")
 
 
-# Step 1 ------------------------------------------------------------------
-# GLM (Logistic Classifier) -----------------------------------------------
+# Addestramento e Tuning Modelli ------------------------------------------------------------------
+# GLM  -----------------------------------------------
 set.seed(9999)
 ctrl = trainControl(method = "cv",
                     number = 10,
@@ -191,7 +261,7 @@ ctrl = trainControl(method = "cv",
                     summaryFunction = twoClassSummary) 
 
 glm = train(target ~ ., 
-            data = train_selected, 
+            data = train, 
             method = "glm", 
             preProcess = c("corr", "nzv"),
             trControl = ctrl,
@@ -202,12 +272,9 @@ glm = train(target ~ .,
 glm 
 confusionMatrix(glm)
 
-glmpred = predict(glm, test_selected)
-glmpred_p = predict(glm, test_selected, type = c("prob"))
-confusionMatrix(glmpred, test_selected$target)
-
-
-
+glmpred = predict(glm, test)
+glmpred_p = predict(glm, test, type = c("prob"))
+confusionMatrix(glmpred, test$target)
 
 # K-Nearest Neightbour ----------------------------------------------------
 
@@ -477,6 +544,7 @@ confusionMatrix(nn_tunedPred, test_selected$target)
 
 # Stacking ----------------------------------------------------------------
 #GLM
+
 cvCtrl = trainControl(method = "cv", 
                       number=10, 
                       searc="grid", 
@@ -484,7 +552,7 @@ cvCtrl = trainControl(method = "cv",
                       classProbs = TRUE)
 
 model_list = caretList(target ~.,
-                       data = train_selected,
+                       data = train,
                        trControl = cvCtrl,
                        methodList = c("glm", "knn", "naive_bayes","rf", "nne")
 )
@@ -520,7 +588,9 @@ colAUC(model_preds3$ensemble, test_selected$target)
 confusionMatrix(model_preds4$ensemble, test_selected$target)
 
 
-# Step 2 ------------------------------------------------------------------
+# Confronto modelli ROC ------------------------------------------------------------------
+
+# Curve Roc
 
 #GLM 
 y = test$target
@@ -603,115 +673,6 @@ plot(roc_gbm_s)
 abline(a=0, b= 1)
 
 
-library(pROC)
-library(ggplot2)
-
-# Combine all ROC curves into a data frame --------------------------------
-#glm
-# Assuming roc_log is a performance object from ROCR
-# Extract false positive rate (FPR) and true positive rate (TPR)
-fpr_log <- roc_log@x.values[[1]]
-tpr_log <- roc_log@y.values[[1]]
-
-# Create a data frame
-df_log <- data.frame(method = "logit", FPR = fpr_log, TPR = tpr_log)
-
-#gb
-fpr_gb <- roc_gb@x.values[[1]]
-tpr_gb <- roc_gb@y.values[[1]]
-df_gb <- data.frame(method = "logit", FPR = fpr_gb, TPR = tpr_gb)
-
-#rf
-fpr_rf <- roc_rf@x.values[[1]]
-tpr_rf <- roc_rf@y.values[[1]]
-df_rf <- data.frame(method = "logit", FPR = fpr_rf, TPR = tpr_rf)
-
-
-#nn
-fpr_nn <- roc_nn@x.values[[1]]
-tpr_nn <- roc_nn@y.values[[1]]
-df_nn <- data.frame(method = "logit", FPR = fpr_nn, TPR = tpr_nn)
-
-
-#knn
-fpr_knn <- roc_knn@x.values[[1]]
-tpr_knn <- roc_knn@y.values[[1]]
-df_knn <- data.frame(method = "logit", FPR = fpr_knn, TPR = tpr_knn)
-
-#knn
-fpr_glm_s <- roc_glm_s@x.values[[1]]
-tpr_glm_s <- roc_glm_s@y.values[[1]]
-df_glm_s <- data.frame(method = "logit", FPR = fpr_glm_s, TPR = tpr_glm_s)
-
-
-
-
-# Combine all data frames
-roc_data <- rbind(df_log, df_gb, df_rf, df_nn, df_knn, df_glm_s)
-
-roc_data <- rbind(
-  data.frame(method = "logit", roc_log),
-  data.frame(method = "gb", roc_gb),
-  data.frame(method = "rf", roc_rf),
-  data.frame(method = "nn", roc_nn),
-  data.frame(method = "knn", roc_knn),
-  data.frame(method = "glmstack", roc_glm_s)
-)
-
-# Plot ROC curves ---------------------------------------------------------
-ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = method)) +
-  geom_line(size = 2) +
-  theme_minimal() +  # You can customize the theme as needed
-  labs(title = "ROC Curves",
-       x = "False Positive Rate",
-       y = "True Positive Rate") +
-  scale_color_manual(values = c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red")) +
-  theme(legend.position = "bottom",
-        legend.title = element_blank(),
-        legend.text = element_text(size = 10),
-        legend.key.size = unit(1.2, "lines"))
-
-
-
-
-
-# Assuming roc_log is a performance object with ROC data
-# Extract false positive rate, true positive rate, and thresholds
-fpr <- roc_log@x.values[[1]]
-tpr <- roc_log@y.values[[1]]
-thresholds <- roc_log@alpha.values[[1]]
-
-# Create a dataframe
-roc_log_df <- data.frame(method = "logit", FPR = fpr, TPR = tpr, Threshold = thresholds)
-
-# Repeat for other methods (roc_gb, roc_rf, etc.) and bind them together
-
-
-
-
-
-plot(roc_log, col = "dodgerblue", lwd = 2) 
-par(new = TRUE)
-plot(roc_gb, col = "darkorange", lwd = 2) 
-par(new = TRUE)
-plot(roc_rf, col = "green", lwd = 2) 
-par(new = TRUE)
-plot(roc_nn, col = "purple", lwd = 2) 
-par(new = TRUE)
-plot(roc_knn, col = "yellow4", lwd = 2)
-par(new = TRUE)
-plot(roc_glm_s, col = "red", lwd = 2) 
-par(new = TRUE)
-
-
-legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack"),
-       col=c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red"),
-       lty = 1, cex = 0.7, text.font=4, y.intersp=0.5, x.intersp=0.1, lwd = 3)
-
-
-
-
-# met2 --------------------------------------------------------------------
 # Function to extract data from a ROC object
 extract_roc_data <- function(roc_obj, method) {
   data.frame(method = method,
@@ -723,25 +684,95 @@ extract_roc_data <- function(roc_obj, method) {
 roc_data_log <- extract_roc_data(roc_log, "logit")
 roc_data_gb <- extract_roc_data(roc_gb, "gb")
 roc_data_rf <- extract_roc_data(roc_rf, "rf")
-roc_data_nn <- extract_roc_data(roc_nn, "nn")
+roc_data_nnt <- extract_roc_data(roc_nn_tuned, "nnt")
 roc_data_knn <- extract_roc_data(roc_knn, "knn")
-roc_data_glm_s <- extract_roc_data(roc_glm_s, "glmstack")
+roc_data_bag <- extract_roc_data(roc_bagging, "bagg")
+roc_data_lasso <- extract_roc_data(roc_lasso, "lasso")
+roc_data_pls <- extract_roc_data(roc_pls, "pls")
+#roc_data_glm_s <- extract_roc_data(roc_glm_s, "glmstack")
 
 # Combine all data into one dataframe
-roc_data <- rbind(roc_data_log, roc_data_gb, roc_data_rf, roc_data_nn, roc_data_knn, roc_data_glm_s)
+roc_data <- rbind(roc_data_log, roc_data_gb, roc_data_rf, roc_data_nnt, roc_data_knn, roc_data_bag,roc_data_lasso,roc_data_pls)
 
-# Plotting the ROC curves using ggplot
-library(ggplot2)
+# Plot ROC curves 
 ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = method)) +
-  geom_line(size = 2) +
-  theme_minimal() +
+  geom_line(size = 1.2) +
+  theme_minimal() +  # You can customize the theme as needed
   labs(title = "ROC Curves",
        x = "False Positive Rate",
        y = "True Positive Rate") +
-  scale_color_manual(values = c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red")) +
+  scale_color_manual(values = c("yellow", "darkorange", "green", "purple", "yellow4", "red",'pink','dodgerblue')) +
   theme(legend.position = "bottom",
         legend.title = element_blank(),
         legend.text = element_text(size = 10),
         legend.key.size = unit(1.2, "lines"))
+
+
+
+# met2
+plot(roc_log, col = "dodgerblue", lwd = 2) 
+par(new = TRUE)
+plot(roc_gb, col = "darkorange", lwd = 2) 
+par(new = TRUE)
+plot(roc_rf, col = "green", lwd = 2) 
+par(new = TRUE)
+plot(roc_nn, col = "purple", lwd = 2) 
+par(new = TRUE)
+plot(roc_knn, col = "yellow4", lwd = 2)
+par(new = TRUE)
+plot(roc_bagging, col = "red", lwd = 2) 
+par(new = TRUE)
+
+
+legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack"),
+       col=c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red"),
+       lty = 1, cex = 0.7, text.font=4, y.intersp=0.5, x.intersp=0.1, lwd = 3)
+
+# Confronto modelli LIFT curve --------------------------------------------------------------------
+
+colnames(test)[colnames(test)=="target"] <- "status" #va lasciata, altrimenti il nome target porta ad un conflitto con gain_lift
+copy = test
+
+# LIFT - GLM (Logistic) 
+
+copy$glm = predict(glm, copy, type = c("prob"))[,2] #capre perchè va preso 2
+gain_lift(data = copy, score='glm', target='status')
+
+# LIFT - KNN 
+
+copy$knn = predict(knn, copy, type = c("prob"))[,2]
+gain_lift(data = copy, score='knn', target='status')
+
+
+# LIFT - LASSO 
+
+copy$lasso = predict(lasso, copy, type = c("prob"))[,2]
+gain_lift(data = copy, score='lasso', target='status')
+
+# LIFT - PLS 
+
+copy$pls = predict(pls, copy, type = c("prob"))[,2]
+gain_lift(data = copy, score='pls', target='status')
+
+# LIFT - Gradient Boosting 
+
+copy$gb = predict(gb, copy, type = c("prob"))[,2]
+gain_lift(data = copy, score='gb', target='status')
+
+# LIFT - Neural Network 
+
+copy$nn = predict(nn, copy, type = c("prob"))[,2]
+gain_lift(data = copy, score='nn', target='status')
+
+# LIFT - STACKING (GBM) 
+
+copy$glm_s = predict(glm_ensemble, copy, type = c("prob")[,2])
+gain_lift(data = copy, score='glm_s', target='status')
+
+# LIFT - RANDOM FOREST
+
+copy$rf= predict(rf, copy, type = c("prob"))[,2]
+gain_lift(data = copy, score='rf', target='status')
+
 
 
