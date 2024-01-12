@@ -114,6 +114,7 @@ test <- subset(test, select = -c(statistical_report, ratio_nullHyperlinks, ratio
 
 
 # Model selection ----------------------------------------------------------
+set.seed(9999)
 #Boruta
 boruta.train = Boruta(target ~., data = train, doTrace = 1)
 plot(boruta.train, xlab = "features", xaxt = "n", ylab="MDI")
@@ -201,12 +202,14 @@ vars_list <- c(
 
 
 # Scelta delle features da mantenere in analisi
-selected20 = c("target","google_index", "page_rank", "nb_hyperlinks", "domain_age", "web_traffic", "nb_www", 
-             "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
+#selected20 = c("target","google_index", "page_rank", "nb_hyperlinks", "domain_age", "web_traffic", "nb_www", 
+#             "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
+
 train_selected = train[,vars_list]
 test_selected= test[,vars_list]
 
-
+vars_list_score <- setdiff(vars_list, "target")
+score_selected= score[,vars_list_score]
 # Verifica Separation -----------------------------------------------------
 
 # Funzione per creare griglie di grafici 3x3 per tutte le variabili
@@ -261,7 +264,7 @@ ctrl = trainControl(method = "cv",
                     summaryFunction = twoClassSummary) 
 
 glm = train(target ~ ., 
-            data = train, 
+            data = train_selected, 
             method = "glm", 
             preProcess = c("corr", "nzv"),
             trControl = ctrl,
@@ -284,12 +287,13 @@ ctrl = trainControl(method = "cv",
                     search = "grid",
                     classProbs = TRUE,
                     summaryFunction = twoClassSummary) 
-
+grid = expand.grid(k = seq(5, 20, 3))
 knn = train(target ~ ., 
             data = train_selected,
             method = "knn",
             trControl = ctrl,
             tuneLength = 10, 
+            tuneGrid = grid,
             preProcess = c("center", "scale", "corr", "nzv"), 
             metric = "Sens") 
 knn
@@ -300,6 +304,7 @@ knnpred = predict(knn, test_selected)
 knnpred_p = predict(knn, test_selected, type = c("prob"))
 confusionMatrix(knnpred, test_selected$target)
 
+save(knn, file = "knn.rda")
 # LASSO -------------------------------------------------------------------
 
 set.seed(9999)
@@ -308,13 +313,13 @@ ctrl = trainControl(method = "cv",
                     classProbs = TRUE,
                     search = "grid", 
                     summaryFunction = twoClassSummary)
-
-
-
+grid = expand.grid(.alpha = 1,
+                   .lambda = seq(0, 1, by = 0.01))
 lasso = train(target ~ ., 
               data = train, 
               method = "glmnet",
-              family = "binomial", 
+              family = "binomial",
+              tuneGrid = grid,
               preProcess = c("corr", "nzv","center", "scale"), 
               metric = "Sens",
               trControl = ctrl,
@@ -378,7 +383,7 @@ confusionMatrix(nbpred, test_selected$target)
 
 # Decision Tree ----------------------------------------
 tree_rpart = rpart(target ~ ., 
-                   data = train_selected, 
+                   data = train, 
                    method = "class",
                    cp = 0, 
                    minsplit = 1)
@@ -394,12 +399,6 @@ treePred_pruned = predict(tree_pruned, test, type = c("class"))
 
 confusionMatrix(treePred_pruned, test$target)
 
-
-
-
-
-
-
 # Bagging -----------------------------------------------------------------
 set.seed(9999)
 ctrl = trainControl(method = "boot",
@@ -409,7 +408,7 @@ ctrl = trainControl(method = "boot",
                     classProbs = TRUE)
 
 bagging = train(target ~ ., 
-                data = train_selected, 
+                data = train, 
                 method = "treebag",
                 ntree = 250,
                 trControl = ctrl)
@@ -490,7 +489,8 @@ head(vImp2)
 # NN ----------------------------------------------------------------------
 
 cvCtrl = trainControl(method = "boot", 
-                      number=10, searc="grid", 
+                      number=10,
+                      searc="grid", 
                       summaryFunction = twoClassSummary, 
                       classProbs = TRUE)
 
@@ -498,7 +498,9 @@ cvCtrl = trainControl(method = "boot",
 nn = train(target ~., data=train_selected,
            method = "nnet",
            preProcess = c("scale", "corr", "nzv"), 
-           tuneLength = 5, metric="Sens", trControl=cvCtrl, trace = TRUE,
+           tuneLength = 5,
+           metric="Sens",
+           trControl=cvCtrl, trace = TRUE,
            maxit = 100)
 
 plot(nn)
@@ -593,7 +595,7 @@ confusionMatrix(model_preds4$ensemble, test_selected$target)
 # Curve Roc
 
 #GLM 
-y = test$target
+y = test$status
 glmpredR = prediction(glmpred_p[,1], y)
 roc_log = performance(glmpredR, measure = "tpr", x.measure = "fpr")
 plot(roc_log)
