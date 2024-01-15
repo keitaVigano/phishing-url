@@ -28,6 +28,7 @@ library(tidyverse)
 library(VIM)
 
 # Importazione dati ---------------------------------------
+
 train <- read.csv("train.csv")
 test <- read.csv("test.csv")
 
@@ -52,9 +53,6 @@ colnames(test)[colnames(test)=="status"] <- "target"
 
 train$target <- factor(train$target, levels = c("phishing", "legitimate"))
 test$target <- factor(test$target, levels = c("phishing", "legitimate"))
-
-
-
 
 # Distribuzione variabile target ------------------------------------------
 class(train$target)
@@ -110,10 +108,10 @@ grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
 
 #Eliminazioni delle variabili problematiche
 train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url ))
-test <- subset(test, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url ))
 
 
 # Model selection ----------------------------------------------------------
+
 set.seed(9999)
 #Boruta
 boruta.train = Boruta(target ~., data = train, doTrace = 1)
@@ -175,7 +173,6 @@ vars_list <- c(
   "domain_in_brand",
   "brand_in_path",
   "suspecious_tld",
-  "statistical_report",
   "nb_hyperlinks",
   "ratio_intHyperlinks",
   "ratio_extHyperlinks",
@@ -206,10 +203,7 @@ vars_list <- c(
 #             "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
 
 train_selected = train[,vars_list]
-test_selected= test[,vars_list]
 
-vars_list_score <- setdiff(vars_list, "target")
-score_selected= score[,vars_list_score]
 # Verifica Separation -----------------------------------------------------
 
 # Funzione per creare griglie di grafici 3x3 per tutte le variabili
@@ -304,9 +298,10 @@ knnpred = predict(knn, test_selected)
 knnpred_p = predict(knn, test_selected, type = c("prob"))
 confusionMatrix(knnpred, test_selected$target)
 
-save(knn, file = "knn.rda")
 # LASSO -------------------------------------------------------------------
 
+numeric_train = train %>% dplyr::select(where(is.numeric))
+numeric_train = cbind(numeric_train, target = train$target)
 set.seed(9999)
 ctrl = trainControl(method = "cv", 
                     number = 10,
@@ -316,7 +311,7 @@ ctrl = trainControl(method = "cv",
 grid = expand.grid(.alpha = 1,
                    .lambda = seq(0, 1, by = 0.01))
 lasso = train(target ~ ., 
-              data = train, 
+              data = numeric_train, 
               method = "glmnet",
               family = "binomial",
               tuneGrid = grid,
@@ -547,18 +542,21 @@ confusionMatrix(nn_tunedPred, test_selected$target)
 # Stacking ----------------------------------------------------------------
 #GLM
 
-cvCtrl = trainControl(method = "cv", 
-                      number=10, 
-                      searc="grid", 
-                      summaryFunction = twoClassSummary, 
+cvCtrl = trainControl(method = "cv",
+                      number=10,
+                      searc="grid",
+                      summaryFunction = twoClassSummary,
                       classProbs = TRUE)
 
-model_list = caretList(target ~.,
-                       data = train,
-                       trControl = cvCtrl,
-                       methodList = c("glm", "knn", "naive_bayes","rf", "nne")
-)
+# model_list = caretList(target ~.,
+#                        data = train,
+#                        trControl = cvCtrl,
+#                        methodList = c("glm", "knn", "naive_bayes","rf", "nne")
+# )
 
+modelli <- list("rf"=rf, "glm"=glm, "nne"=nn, "naive_bayes"=naivebayes, "knn"=knn)
+class(modelli) <- "caretList"
+ 
 glm_ensemble = caretStack(
   model_list,
   method="glm",
@@ -566,10 +564,11 @@ glm_ensemble = caretStack(
   trControl = cvCtrl
 )
 
-model_preds = lapply(model_list, predict, newdata = test_selected, type="prob")
+set.seed(42)
+model_preds = lapply(model_list, predict, newdata = test, type="prob")
 model_preds2 = model_preds
-model_preds$ensemble = predict(glm_ensemble, newdata = test_selected, type="prob")
-model_preds2$ensemble = predict(glm_ensemble, newdata = test_selected)
+model_preds$ensemble = predict(glm_ensemble, newdata = test, type="prob")
+model_preds2$ensemble = predict(glm_ensemble, newdata = test)
 CF = coef(glm_ensemble$ens_model$finalModel)[-1]
 colAUC(model_preds$ensemble, test_selected$target)
 confusionMatrix(model_preds2$ensemble, test_selected$target)
@@ -595,7 +594,7 @@ confusionMatrix(model_preds4$ensemble, test_selected$target)
 # Curve Roc
 
 #GLM 
-y = test$status
+y = test$target
 glmpredR = prediction(glmpred_p[,1], y)
 roc_log = performance(glmpredR, measure = "tpr", x.measure = "fpr")
 plot(roc_log)
