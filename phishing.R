@@ -54,7 +54,12 @@ colnames(test)[colnames(test)=="status"] <- "target"
 train$target <- factor(train$target, levels = c("phishing", "legitimate"))
 test$target <- factor(test$target, levels = c("phishing", "legitimate"))
 
+# True priors
+rho1 = 0.5; rho0 = 0.5; true0 = 0.99; true1 = 0.01 
+
 # Distribuzione variabile target ------------------------------------------
+df.drop('google_index', axis=1, inplace=True)
+
 class(train$target)
 table(train$target) / nrow(train)
 
@@ -107,7 +112,7 @@ p6 <- plot_gg1(sfh)
 grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
 
 #Eliminazioni delle variabili problematiche
-train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url ))
+train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url, google_index ))
 
 
 # Model selection ----------------------------------------------------------
@@ -193,7 +198,7 @@ vars_list <- c(
   "domain_age",
   "web_traffic",
   "dns_record",
-  "google_index",
+  #"google_index",
   "page_rank",'target'
 )
 
@@ -255,7 +260,7 @@ ctrl = trainControl(method = "cv",
                     number = 10,
                     search = "grid", 
                     classProbs = TRUE,
-                    summaryFunction = twoClassSummary, savePredictions = TRUE) 
+                    summaryFunction = twoClassSummary) 
 
 glm = train(target ~ ., 
             data = train_selected, 
@@ -280,7 +285,7 @@ ctrl = trainControl(method = "cv",
                     number = 10,
                     search = "grid",
                     classProbs = TRUE,
-                    summaryFunction = twoClassSummary, savePredictions = TRUE) 
+                    summaryFunction = twoClassSummary) 
 grid = expand.grid(k = seq(5, 20, 3))
 knn = train(target ~ ., 
             data = train_selected,
@@ -294,14 +299,14 @@ knn
 plot(knn)
 confusionMatrix(knn)
 
+
+
 knnpred = predict(knn, test_selected)
 knnpred_p = predict(knn, test_selected, type = c("prob"))
 confusionMatrix(knnpred, test_selected$target)
 
 # LASSO -------------------------------------------------------------------
 
-numeric_train = train %>% dplyr::select(where(is.numeric))
-numeric_train = cbind(numeric_train, target = train$target)
 set.seed(9999)
 ctrl = trainControl(method = "cv", 
                     number = 10,
@@ -444,6 +449,14 @@ gbpred = predict(gb, test)
 gbpred_p = predict(gb, test, type = c("prob"))
 confusionMatrix(gbpred, test$target)
 
+# True priors
+gb_old_pr1 = predict(gb, test, "prob")[,1] 
+pred_r1_gb<-as.numeric(gb_old_pr1) 
+pred_r0_gb = 1 - pred_r1 
+den = pred_r1_gb*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_gb = pred_r1_gb*(true1/rho1)/den 
+pred0_true_gb = pred_r0_gb*(true0/rho0)/den
+
 # Random Forest -----------------------------------------------------------
 
 set.seed(9999)
@@ -451,7 +464,7 @@ ctrl <- trainControl(method = "cv",
                      number = 10,
                      search = "grid",
                      classProbs = TRUE,
-                     summaryFunction = twoClassSummary, savePredictions = TRUE)
+                     summaryFunction = twoClassSummary)
 
 rf <- train(target ~ ., 
             data = train, 
@@ -469,6 +482,13 @@ rfpred = predict(rf, test)
 rfpred_p = predict(rf, test, type = c("prob"))
 confusionMatrix(rfpred, test$target)
 
+# True priors
+rf_old_pr1 = predict(rf, test, "prob")[,1] 
+pred_r1<-as.numeric(rf_old_pr1) 
+pred_r0 = 1 - pred_r1 
+den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_rf = pred_r1*(true1/rho1)/den 
+pred0_true_rf = pred_r0*(true0/rho0)/den
 
 # Permutation Importance
 vImp = varImp(rf)
@@ -548,17 +568,17 @@ cvCtrl = trainControl(method = "cv",
                       summaryFunction = twoClassSummary,
                       classProbs = TRUE)
 
-# model_list = caretList(target ~.,
-#                        data = train,
-#                        trControl = cvCtrl,
-#                        methodList = c("glm", "knn", "naive_bayes","rf", "nne")
-# )
+model_list = caretList(target ~.,
+                       data = train,
+                       trControl = cvCtrl,
+                       methodList = c("glm", "knn", "naive_bayes","rf", "nne")
+ )
 
-modelli <- list("rf"=rf, "glm"=glm, "nne"=nn, "naive_bayes"=naivebayes, "knn"=knn)
-class(modelli) <- "caretList"
+# modelli <- list("rf"=rf, "glm"=glm, "nne"=nn, "naive_bayes"=naivebayes, "knn"=knn)
+# class(modelli) <- "caretList"
  
 glm_ensemble = caretStack(
-  modelli,
+  model_list,
   method="glm",
   metric="Sens",
   trControl = cvCtrl
@@ -573,27 +593,14 @@ CF = coef(glm_ensemble$ens_model$finalModel)[-1]
 colAUC(model_preds$ensemble, test_selected$target)
 confusionMatrix(model_preds2$ensemble, test_selected$target)
 
-
-
-
-
-
-
-
-#GBM
-gbm_ensemble = caretStack(
-  model_list,
-  method="gbm",
-  metric="Sens",
-  trControl = cvCtrl
-)
-
-model_preds3 = model_preds
-model_preds4 = model_preds
-model_preds3$ensemble = predict(gbm_ensemble, newdata=test_selected, type="prob")
-model_preds4$ensemble = predict(gbm_ensemble, newdata=test_selected)
-colAUC(model_preds3$ensemble, test_selected$target)
-confusionMatrix(model_preds4$ensemble, test_selected$target)
+# True priors
+set.seed(42)
+ens_old_pr1 = model_preds$ensemble
+pred_r1<-as.numeric(ens_old_pr1) 
+pred_r0 = 1 - pred_r1 
+den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_ens = pred_r1*(true1/rho1)/den 
+pred0_true_ens = pred_r0*(true0/rho0)/den
 
 
 # Confronto modelli ROC ------------------------------------------------------------------
@@ -743,29 +750,25 @@ legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack","Las
        lty = 1, cex = 0.7, text.font=4, y.intersp=0.5, x.intersp=0.1, lwd = 3)
 
 # Confronto modelli LIFT curve --------------------------------------------------------------------
+
 copy = test
 colnames(copy)[colnames(copy)=="target"] <- "status" #va lasciata, altrimenti il nome target porta ad un conflitto con gain_lift
 
-
-
 # LIFT - Gradient Boosting 
 
-copy$gb = predict(gb, copy, type = c("prob"))[,2]
+copy$gb = pred0_true_gb
 gain_lift(data = copy, score = 'gb', target = 'status')
 
 
 # LIFT - STACKING (GLM) 
-copy$glm_s = 1-predict(glm_ensemble, copy, type = c("prob"))
+copy$glm_s = pred0_true_ens
 gain_lift(data = copy, score='glm_s', target='status')
 
 
 # LIFT - RANDOM FOREST
 
-copy$rf= predict(rf, copy, type = c("prob"))[,2]
+copy$rf= pred0_true_rf
 gain_lift(data = copy, score='rf', target='status')
-
-
-
 
 # Step 3 ------------------------------------------------------------------
 # Random Forest
