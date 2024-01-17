@@ -255,7 +255,7 @@ ctrl = trainControl(method = "cv",
                     number = 10,
                     search = "grid", 
                     classProbs = TRUE,
-                    summaryFunction = twoClassSummary) 
+                    summaryFunction = twoClassSummary, savePredictions = TRUE) 
 
 glm = train(target ~ ., 
             data = train_selected, 
@@ -280,7 +280,7 @@ ctrl = trainControl(method = "cv",
                     number = 10,
                     search = "grid",
                     classProbs = TRUE,
-                    summaryFunction = twoClassSummary) 
+                    summaryFunction = twoClassSummary, savePredictions = TRUE) 
 grid = expand.grid(k = seq(5, 20, 3))
 knn = train(target ~ ., 
             data = train_selected,
@@ -400,7 +400,7 @@ ctrl = trainControl(method = "boot",
                     number = 10,
                     searc = "grid", 
                     summaryFunction = twoClassSummary, 
-                    classProbs = TRUE)
+                    classProbs = TRUE, savePredictions = TRUE)
 
 bagging = train(target ~ ., 
                 data = train, 
@@ -451,7 +451,7 @@ ctrl <- trainControl(method = "cv",
                      number = 10,
                      search = "grid",
                      classProbs = TRUE,
-                     summaryFunction = twoClassSummary)
+                     summaryFunction = twoClassSummary, savePredictions = TRUE)
 
 rf <- train(target ~ ., 
             data = train, 
@@ -558,7 +558,7 @@ modelli <- list("rf"=rf, "glm"=glm, "nne"=nn, "naive_bayes"=naivebayes, "knn"=kn
 class(modelli) <- "caretList"
  
 glm_ensemble = caretStack(
-  model_list,
+  modelli,
   method="glm",
   metric="Sens",
   trControl = cvCtrl
@@ -567,11 +567,18 @@ glm_ensemble = caretStack(
 set.seed(42)
 model_preds = lapply(model_list, predict, newdata = test, type="prob")
 model_preds2 = model_preds
-model_preds$ensemble = predict(glm_ensemble, newdata = test, type="prob")
+model_preds$ensemble = predict(glm_ensemble, newdata = test, type="prob" )
 model_preds2$ensemble = predict(glm_ensemble, newdata = test)
 CF = coef(glm_ensemble$ens_model$finalModel)[-1]
 colAUC(model_preds$ensemble, test_selected$target)
 confusionMatrix(model_preds2$ensemble, test_selected$target)
+
+
+
+
+
+
+
 
 #GBM
 gbm_ensemble = caretStack(
@@ -690,19 +697,19 @@ roc_data_knn <- extract_roc_data(roc_knn, "knn")
 roc_data_bag <- extract_roc_data(roc_bagging, "bagg")
 roc_data_lasso <- extract_roc_data(roc_lasso, "lasso")
 roc_data_pls <- extract_roc_data(roc_pls, "pls")
-#roc_data_glm_s <- extract_roc_data(roc_glm_s, "glmstack")
+roc_data_glm_s <- extract_roc_data(roc_glm_s, "glmstack")
 
 # Combine all data into one dataframe
-roc_data <- rbind(roc_data_log, roc_data_gb, roc_data_rf, roc_data_nnt, roc_data_knn, roc_data_bag,roc_data_lasso,roc_data_pls)
+roc_data <- rbind(roc_data_log, roc_data_gb, roc_data_rf, roc_data_nnt, roc_data_knn, roc_data_bag,roc_data_lasso,roc_data_pls,roc_data_glm_s)
 
 # Plot ROC curves 
 ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = method)) +
   geom_line(size = 1.2) +
-  theme_minimal() +  # You can customize the theme as needed
+  theme_minimal() + 
   labs(title = "ROC Curves",
        x = "False Positive Rate",
        y = "True Positive Rate") +
-  scale_color_manual(values = c("yellow", "darkorange", "green", "purple", "yellow4", "red",'pink','dodgerblue')) +
+  scale_color_manual(values = c("yellow", "darkorange", "green", "purple", "yellow4", "red",'pink','dodgerblue','darkblue')) +
   theme(legend.position = "bottom",
         legend.title = element_blank(),
         legend.text = element_text(size = 10),
@@ -721,54 +728,36 @@ plot(roc_nn, col = "purple", lwd = 2)
 par(new = TRUE)
 plot(roc_knn, col = "yellow4", lwd = 2)
 par(new = TRUE)
-plot(roc_bagging, col = "red", lwd = 2) 
+plot(roc_glm_s, col = "red", lwd = 2) 
+par(new = TRUE)
+plot(roc_lasso, col = "pink", lwd = 2) 
+par(new = TRUE)
+plot(roc_pls, col = "yellow", lwd = 2) 
+par(new = TRUE)
+plot(roc_bagging, col = "darkblue", lwd = 2) 
 par(new = TRUE)
 
 
-legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack"),
-       col=c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red"),
+legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack","Lasso","Pls","Bagging"),
+       col=c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red","pink","yellow",'darkblue'),
        lty = 1, cex = 0.7, text.font=4, y.intersp=0.5, x.intersp=0.1, lwd = 3)
 
 # Confronto modelli LIFT curve --------------------------------------------------------------------
-
-colnames(test)[colnames(test)=="target"] <- "status" #va lasciata, altrimenti il nome target porta ad un conflitto con gain_lift
 copy = test
-
-# LIFT - GLM (Logistic) 
-
-copy$glm = predict(glm, copy, type = c("prob"))[,2] #capre perchè va preso 2
-gain_lift(data = copy, score='glm', target='status')
-
-# LIFT - KNN 
-
-copy$knn = predict(knn, copy, type = c("prob"))[,2]
-gain_lift(data = copy, score='knn', target='status')
+colnames(copy)[colnames(copy)=="target"] <- "status" #va lasciata, altrimenti il nome target porta ad un conflitto con gain_lift
 
 
-# LIFT - LASSO 
-
-copy$lasso = predict(lasso, copy, type = c("prob"))[,2]
-gain_lift(data = copy, score='lasso', target='status')
-
-# LIFT - PLS 
-
-copy$pls = predict(pls, copy, type = c("prob"))[,2]
-gain_lift(data = copy, score='pls', target='status')
 
 # LIFT - Gradient Boosting 
 
 copy$gb = predict(gb, copy, type = c("prob"))[,2]
-gain_lift(data = copy, score='gb', target='status')
+gain_lift(data = copy, score = 'gb', target = 'status')
 
-# LIFT - Neural Network 
 
-copy$nn = predict(nn, copy, type = c("prob"))[,2]
-gain_lift(data = copy, score='nn', target='status')
-
-# LIFT - STACKING (GBM) 
-
-copy$glm_s = predict(glm_ensemble, copy, type = c("prob")[,2])
+# LIFT - STACKING (GLM) 
+copy$glm_s = 1-predict(glm_ensemble, copy, type = c("prob"))
 gain_lift(data = copy, score='glm_s', target='status')
+
 
 # LIFT - RANDOM FOREST
 
@@ -777,3 +766,42 @@ gain_lift(data = copy, score='rf', target='status')
 
 
 
+
+# Step 3 ------------------------------------------------------------------
+# Random Forest
+y = test$target
+rfPredR = prediction(rfpred_p[,1], y)
+predRoc <- rfPredR
+
+# Supponendo che 'predRoc' sia un oggetto di previsione valido creato in precedenza
+# Calcolo delle performance
+acc.perf = performance(predRoc, measure = "acc")
+spec.perf = performance(predRoc, measure = "spec")
+sens.perf = performance(predRoc, measure = "sens")
+
+# Estrazione dei valori per il plot
+acc.values = acc.perf@y.values[[1]]
+spec.values = spec.perf@y.values[[1]]
+sens.values = sens.perf@y.values[[1]]
+thresholds = acc.perf@x.values[[1]]
+
+# Creazione del grafico
+plot(thresholds, acc.values, type="l", col="dodgerblue", 
+     main="Performance Metrics vs Threshold", xlab="Threshold", ylab="Metrics",
+     ylim=range(c(acc.values, spec.values, sens.values)))
+lines(thresholds, spec.values, col="darkorange")
+lines(thresholds, sens.values, col="green")
+
+# Aggiunta della legenda
+legend("bottomright", legend=c("Accuracy", "Specificity", "Sensitivity"),
+       col=c("dodgerblue", "darkorange", "green"),
+       lty=1, cex=0.8, text.font=4, y.intersp=1.2, x.intersp=1.2, lwd=2)
+
+#nuova regola
+
+test$pred_y=ifelse(rfpred_p[,1]>0.35, "phishing","legitimate")
+
+test$pred_y <- factor(test$pred_y, levels = c("phishing", "legitimate"))
+
+# Ora puoi utilizzare la funzione confusionMatrix
+confusionMatrix(test$pred_y, test$target)
