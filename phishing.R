@@ -113,6 +113,7 @@ grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
 
 #Eliminazioni delle variabili problematiche
 train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url, google_index ))
+score <- subset(score, select = -c(status))
 
 
 # Model selection ----------------------------------------------------------
@@ -251,7 +252,6 @@ plot_all_variables_in_grids <- function(data, target_var) {
 
 # Utilizzo della funzione
 plot_all_variables_in_grids(train, "status")
-
 
 # Addestramento e Tuning Modelli ------------------------------------------------------------------
 # GLM  -----------------------------------------------
@@ -776,7 +776,6 @@ y = test$target
 rfPredR = prediction(rfpred_p[,1], y)
 predRoc <- rfPredR
 
-# Supponendo che 'predRoc' sia un oggetto di previsione valido creato in precedenza
 # Calcolo delle performance
 acc.perf = performance(predRoc, measure = "acc")
 spec.perf = performance(predRoc, measure = "spec")
@@ -800,11 +799,40 @@ legend("bottomright", legend=c("Accuracy", "Specificity", "Sensitivity"),
        col=c("dodgerblue", "darkorange", "green"),
        lty=1, cex=0.8, text.font=4, y.intersp=1.2, x.intersp=1.2, lwd=2)
 
-#nuova regola
-
-test$pred_y=ifelse(rfpred_p[,1]>0.35, "phishing","legitimate")
-
+# Unadjusted
+test$pred_y=ifelse(rfpred_p[,1]>0.4, "phishing","legitimate")
 test$pred_y <- factor(test$pred_y, levels = c("phishing", "legitimate"))
-
-# Ora puoi utilizzare la funzione confusionMatrix
 confusionMatrix(test$pred_y, test$target)
+
+#Adjusted
+test$pred_y_adj=ifelse(pred1_true_rf>0.4, "phishing","legitimate")
+test$pred_y_adj <- factor(test$pred_y_adj, levels = c("phishing", "legitimate"))
+TP <- sum(test$target == "phishing" & test$pred_y == "phishing")
+TP_adj <- (true0/rho0)*TP
+FP <- sum(test$target == "legitimate" & test$pred_y == "phishing")
+FP_adj <- (true0/rho0)*FP
+TN <- sum(test$target == "legitimate" & test$pred_y == "legitimate")
+TN_adj <- (true1/rho1)*TN
+FN <- sum(test$target == "phishing" & test$pred_y == "legitimate")
+FN_adj <- (true1/rho1)*FN
+accuracy_adj <- (TP_adj + TN_adj) / (TP_adj + FP_adj + TN_adj + FN_adj )
+
+# Stampa della matrice di confusione e delle metriche
+cat("Matrice di Confusione aggiustata:\n")
+cat("               Predetto\n")
+cat("Reale   Phishing Legitimate\n")
+cat("Phishing ", TP_adj, "      ", FN_adj, "\n")
+cat("Legitimate ", FP_adj, "      ", TN_adj, "\n\n")
+
+cat("Accuracy: ", accuracy_adj, "\n")
+
+# Step 4 ------------------------------------------------------------------
+
+rf_old_pr1_score = predict(rf, score, "prob")[,1] 
+pred_r1_score<-as.numeric(rf_old_pr1_score) 
+pred_r0_score = 1 - pred_r1_score 
+den = pred_r1_score*(true1/rho1)+pred_r0_score*(true0/rho0) 
+pred1_true_rf_score = pred_r1_score*(true1/rho1)/den 
+pred0_true_rf_score = pred_r0_score*(true0/rho0)/den
+score$pred_y=ifelse(pred1_true_rf_score>0.4, "phishing","legitimate")
+head(score)
