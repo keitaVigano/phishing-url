@@ -1349,6 +1349,48 @@ legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack","Las
        col=c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red","pink","yellow",'darkblue'),
        lty = 1, cex = 0.7, text.font=4, y.intersp=0.5, x.intersp=0.1, lwd = 3)
 
+# AUC ---------------------------------------------------------------------
+
+AUClogit = performance(glmpredR, measure = "auc")
+AUCgb = performance(gbPredR, measure = "auc")
+AUCrf = performance(rfPredR, measure = "auc")
+AUCnn = performance(nnPredR, measure = "auc")
+AUCknn = performance(knnpredR, measure = "auc")
+AUCglmstack = performance(glm_sPredR, measure = "auc")
+AUCLasso = performance(lassoPredR, measure = "auc")
+AUCPls = performance(plsPredR, measure = "auc")
+AUCBagging = performance(baggingPredR, measure = "auc")
+
+AUClogit = AUClogit@y.values[[1]]
+AUCgb = AUCgb@y.values[[1]]
+AUCrf = AUCrf@y.values[[1]]
+AUCnn = AUCnn@y.values[[1]]
+AUCknn = AUCknn@y.values[[1]]
+AUCglmstack = AUCglmstack@y.values[[1]]
+AUCLasso = AUCLasso@y.values[[1]]
+AUCPls = AUCPls@y.values[[1]]
+AUCBagging = AUCBagging@y.values[[1]]
+
+# Dati delle AUC
+AUC_values <- c(AUClogit, AUCgb, AUCrf, AUCnn, AUCknn, AUCglmstack, AUCLasso, AUCPls, AUCBagging)
+Algoritmi <- c("Logit", "Gradient Boosting", "Random Forest", "Neural Network", "KNN", "GLM Stack", "Lasso", "PLS", "Bagging")
+
+# Crea un dataframe
+dfAUC <- data.frame(Algoritmi, AUC_values)
+
+# Crea l'istogramma con ggplot2
+histAUC <- ggplot(dfAUC, aes(x = Algoritmi, y = AUC_values, fill = Algoritmi)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Confronto delle AUC tra i modelli",
+       x = "Algoritmo",
+       y = "AUC") +
+  theme_minimal() +
+  theme(legend.position="top") +
+  guides(fill=guide_legend(title="Algoritmo")) +
+  coord_cartesian(ylim = c(0.5, 1))
+
+histAUC
+
 # Confronto modelli LIFT curve --------------------------------------------------------------------
 
 copy = test
