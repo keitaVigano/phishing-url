@@ -107,7 +107,7 @@ p6 <- plot_gg1(sfh)
 grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
 
 #Eliminazioni delle variabili problematiche
-train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url, google_index ))
+train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url))
 score <- subset(score, select = -c(status))
 
 
@@ -195,13 +195,9 @@ vars_list <- c(
   "web_traffic",
   "dns_record",
   #"google_index",
-  "page_rank",'status'
+  "page_rank",
+  'status'
 )
-
-
-# Scelta delle features da mantenere in analisi
-#selected20 = c("status","google_index", "page_rank", "nb_hyperlinks", "domain_age", "web_traffic", "nb_www", 
-#             "phish_hints", "length_url", "longest_word_path", "length_hostname", "nb_hyphens", "ratio_intHyperlinks","safe_anchor","domain_registration_length","length_words_raw", "longest_words_raw","ratio_extHyperlinks","ratio_digits_host","nb_slash","avg_word_path")
 
 train_selected = train[,vars_list]
 
@@ -248,7 +244,43 @@ plot_all_variables_in_grids <- function(data, status_var) {
 # Utilizzo della funzione
 plot_all_variables_in_grids(train, "status")
 
-# Addestramento e Tuning Modelli 
+
+# Funzione matrice confusione corretta ------------------------------------
+
+adjusted_confusion_matrix <- function(model, test_data, soglia) {
+  
+  glmpred_probs <- predict(model, test_data, type = "prob")
+  
+  glmpred <- glmpred_probs[, 1]
+  
+  test_data$pred_y_glm_adj <- ifelse(glmpred > soglia, "phishing", "legitimate")
+  test_data$pred_y_glm_adj <- factor(test_data$pred_y_glm_adj, levels = c("phishing", "legitimate"))
+  
+  conf_mat <- confusionMatrix(test_data$pred_y_glm_adj, test_data$status)
+  true_positives <- conf_mat$table[1, 1]
+  false_positives <- conf_mat$table[1, 2]
+  false_negatives <- conf_mat$table[2, 1]
+  true_negatives <- conf_mat$table[2, 2]
+  
+  TP_adj <- (true1 / rho1) * true_positives
+  FP_adj <- (true0 / rho0) * false_positives
+  TN_adj <- (true0 / rho0) * true_negatives
+  FN_adj <- (true1 / rho1) * false_negatives
+  accuracy_adj <- (TP_adj + TN_adj) / (TP_adj + FP_adj + TN_adj + FN_adj)
+  
+  sensitivity_adj <- TP_adj / (TP_adj + FN_adj)
+  specificity_adj <- TN_adj / (TN_adj + FP_adj)
+  
+  cat("Matrice di Confusione aggiustata:\n",
+      "               Predetto\n",
+      "Reale   Phishing Legitimate\n",
+      "Phishing ", TP_adj, "      ", FN_adj, "\n",
+      "Legitimate ", FP_adj, "      ", TN_adj, "\n\n",
+      "Accuracy: ", accuracy_adj, "\n",
+      "Sensitivity: ", sensitivity_adj, "\n",
+      "Specificity: ", specificity_adj, "\n")
+}
+
 # GLM  -----------------------------------------------
 set.seed(9999)
 ctrl = trainControl(method = "cv",
@@ -271,65 +303,10 @@ glm
 glmpred = predict(glm, test)
 glmpred_p = predict(glm, test, type = c("prob"))
 
-# Train
-# True priors
-glm_old_pr1_tr = predict(glm, train, "prob")[,1] 
-pred_r1_glm_tr<-as.numeric(glm_old_pr1_tr) 
-pred_r0_glm_tr = 1 - pred_r1_glm_tr 
-den = pred_r1_glm_tr*(true1/rho1)+pred_r0_glm_tr*(true0/rho0) 
-pred1_true_glm_tr = pred_r1_glm_tr*(true1/rho1)/den 
-pred0_true_glm_tr = pred_r0_glm_tr*(true0/rho0)/den
+confusionMatrix(glmpred, test$status)
 
-#Adjusted
-train$pred_y_glm_adj_tr=ifelse(pred1_true_glm_tr>0.4, "phishing","legitimate")
-train$pred_y_glm_adj_tr <- factor(train$pred_y_glm_adj_tr, levels = c("phishing", "legitimate"))
-TP_glm_tr <- sum(train$status == "phishing" & train$pred_y_glm_adj_tr == "phishing")
-TP_adj_glm_tr <- (true0/rho0)*TP_glm_tr
-FP_glm_tr <- sum(train$status == "legitimate" & train$pred_y_glm_adj_tr == "phishing")
-FP_adj_glm_tr <- (true0/rho0)*FP_glm_tr
-TN_glm_tr <- sum(train$status == "legitimate" & train$pred_y_glm_adj_tr == "legitimate")
-TN_adj_glm_tr <- (true1/rho1)*TN_glm_tr
-FN_glm_tr <- sum(train$status == "phishing" & train$pred_y_glm_adj_tr == "legitimate")
-FN_adj_glm_tr <- (true1/rho1)*FN_glm_tr
-accuracy_adj_glm_tr <- (TP_adj_glm_tr + TN_adj_glm_tr) / (TP_adj_glm_tr + FP_adj_glm_tr + TN_adj_glm_tr + FN_adj_glm_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_glm_tr, "      ", FN_adj_glm_tr, "\n",
-    "Legitimate ", FP_adj_glm_tr, "      ", TN_adj_glm_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_glm_tr, "\n")
-
-# Test
-# True priors
-glm_old_pr1 = predict(glm, test, "prob")[,1] 
-pred_r1<-as.numeric(glm_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_glm = pred_r1*(true1/rho1)/den 
-pred0_true_glm = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_glm_adj=ifelse(pred1_true_glm>0.4, "phishing","legitimate")
-test$pred_y_glm_adj <- factor(test$pred_y_glm_adj, levels = c("phishing", "legitimate"))
-TP_glm <- sum(test$status == "phishing" & test$pred_y_glm_adj == "phishing")
-TP_adj_glm <- (true0/rho0)*TP_glm
-FP_glm <- sum(test$status == "legitimate" & test$pred_y_glm_adj == "phishing")
-FP_adj_glm <- (true0/rho0)*FP_glm
-TN_glm <- sum(test$status == "legitimate" & test$pred_y_glm_adj == "legitimate")
-TN_adj_glm <- (true1/rho1)*TN_glm
-FN_glm <- sum(test$status == "phishing" & test$pred_y_glm_adj == "legitimate")
-FN_adj_glm <- (true1/rho1)*FN_glm
-accuracy_adj_glm <- (TP_adj_glm + TN_adj_glm) / (TP_adj_glm + FP_adj_glm + TN_adj_glm + FN_adj_glm)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_glm, "      ", FN_adj_glm, "\n",
-    "Legitimate ", FP_adj_glm, "      ", TN_adj_glm, "\n\n",
-    "Accuracy: ", accuracy_adj_glm, "\n")
+adjusted_confusion_matrix(glm, test, 0.5)
+adjusted_confusion_matrix(glm, train, 0.5)
 
 # K-Nearest Neightbour ----------------------------------------------------
 
@@ -353,66 +330,10 @@ knn
 knnpred = predict(knn, test)
 knnpred_p = predict(knn, test, type = c("prob"))
 
+confusionMatrix(knnpred, test$status)
 
-# Train
-# True priors
-knn_old_pr1_tr = predict(knn, train, "prob")[,1] 
-pred_r1_knn_tr<-as.numeric(knn_old_pr1_tr) 
-pred_r0_knn_tr = 1 - pred_r1_knn_tr 
-den = pred_r1_knn_tr*(true1/rho1)+pred_r0_knn_tr*(true0/rho0) 
-pred1_true_knn_tr = pred_r1_knn_tr*(true1/rho1)/den 
-pred0_true_knn_tr = pred_r0_knn_tr*(true0/rho0)/den
-
-#Adjusted
-train$pred_y_knn_adj_tr=ifelse(pred1_true_knn_tr>0.4, "phishing","legitimate")
-train$pred_y_knn_adj_tr <- factor(train$pred_y_knn_adj_tr, levels = c("phishing", "legitimate"))
-TP_knn_tr <- sum(train$status == "phishing" & train$pred_y_knn_adj_tr == "phishing")
-TP_adj_knn_tr <- (true0/rho0)*TP_knn_tr
-FP_knn_tr <- sum(train$status == "legitimate" & train$pred_y_knn_adj_tr == "phishing")
-FP_adj_knn_tr <- (true0/rho0)*FP_knn_tr
-TN_knn_tr <- sum(train$status == "legitimate" & train$pred_y_knn_adj_tr == "legitimate")
-TN_adj_knn_tr <- (true1/rho1)*TN_knn_tr
-FN_knn_tr <- sum(train$status == "phishing" & train$pred_y_knn_adj_tr == "legitimate")
-FN_adj_knn_tr <- (true1/rho1)*FN_knn_tr
-accuracy_adj_knn_tr <- (TP_adj_knn_tr + TN_adj_knn_tr) / (TP_adj_knn_tr + FP_adj_knn_tr + TN_adj_knn_tr + FN_adj_knn_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_knn_tr, "      ", FN_adj_knn_tr, "\n",
-    "Legitimate ", FP_adj_knn_tr, "      ", TN_adj_knn_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_knn_tr, "\n")
-
-# Test
-# True priors
-knn_old_pr1 = predict(knn, test, "prob")[,1] 
-pred_r1<-as.numeric(knn_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_knn = pred_r1*(true1/rho1)/den 
-pred0_true_knn = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_knn_adj=ifelse(pred1_true_knn>0.4, "phishing","legitimate")
-test$pred_y_knn_adj <- factor(test$pred_y_knn_adj, levels = c("phishing", "legitimate"))
-TP_knn <- sum(test$status == "phishing" & test$pred_y_knn_adj == "phishing")
-TP_adj_knn <- (true0/rho0)*TP_knn
-FP_knn <- sum(test$status == "legitimate" & test$pred_y_knn_adj == "phishing")
-FP_adj_knn <- (true0/rho0)*FP_knn
-TN_knn <- sum(test$status == "legitimate" & test$pred_y_knn_adj == "legitimate")
-TN_adj_knn <- (true1/rho1)*TN_knn
-FN_knn <- sum(test$status == "phishing" & test$pred_y_knn_adj == "legitimate")
-FN_adj_knn <- (true1/rho1)*FN_knn
-accuracy_adj_knn <- (TP_adj_knn + TN_adj_knn) / (TP_adj_knn + FP_adj_knn + TN_adj_knn + FN_adj_knn)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_knn, "      ", FN_adj_knn, "\n",
-    "Legitimate ", FP_adj_knn, "      ", TN_adj_knn, "\n\n",
-    "Accuracy: ", accuracy_adj_knn, "\n")
+adjusted_confusion_matrix(knn, test, 0.5)
+adjusted_confusion_matrix(knn, train, 0.5)
 
 # LASSO -------------------------------------------------------------------
 
@@ -425,7 +346,7 @@ ctrl = trainControl(method = "cv",
 grid = expand.grid(.alpha = 1,
                    .lambda = seq(0, 1, by = 0.01))
 lasso = train(status ~ ., 
-              data = numeric_train, 
+              data = train, 
               method = "glmnet",
               family = "binomial",
               tuneGrid = grid,
@@ -438,65 +359,10 @@ lasso
 lassopred = predict(lasso, test)
 lassopred_p = predict(lasso, test, type = c("prob"))
 
-# Train
-# True priors
-lasso_old_pr1_tr = predict(lasso, train, "prob")[,1] 
-pred_r1_lasso_tr<-as.numeric(lasso_old_pr1_tr) 
-pred_r0_lasso_tr = 1 - pred_r1_lasso_tr 
-den = pred_r1_lasso_tr*(true1/rho1)+pred_r0_lasso_tr*(true0/rho0) 
-pred1_true_lasso_tr = pred_r1_lasso_tr*(true1/rho1)/den 
-pred0_true_lasso_tr = pred_r0_lasso_tr*(true0/rho0)/den
+confusionMatrix(lassopred, test$status)
 
-#Adjusted
-train$pred_y_lasso_adj_tr=ifelse(pred1_true_lasso_tr>0.4, "phishing","legitimate")
-train$pred_y_lasso_adj_tr <- factor(train$pred_y_lasso_adj_tr, levels = c("phishing", "legitimate"))
-TP_lasso_tr <- sum(train$status == "phishing" & train$pred_y_lasso_adj_tr == "phishing")
-TP_adj_lasso_tr <- (true0/rho0)*TP_lasso_tr
-FP_lasso_tr <- sum(train$status == "legitimate" & train$pred_y_lasso_adj_tr == "phishing")
-FP_adj_lasso_tr <- (true0/rho0)*FP_lasso_tr
-TN_lasso_tr <- sum(train$status == "legitimate" & train$pred_y_lasso_adj_tr == "legitimate")
-TN_adj_lasso_tr <- (true1/rho1)*TN_lasso_tr
-FN_lasso_tr <- sum(train$status == "phishing" & train$pred_y_lasso_adj_tr == "legitimate")
-FN_adj_lasso_tr <- (true1/rho1)*FN_lasso_tr
-accuracy_adj_lasso_tr <- (TP_adj_lasso_tr + TN_adj_lasso_tr) / (TP_adj_lasso_tr + FP_adj_lasso_tr + TN_adj_lasso_tr + FN_adj_lasso_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_lasso_tr, "      ", FN_adj_lasso_tr, "\n",
-    "Legitimate ", FP_adj_lasso_tr, "      ", TN_adj_lasso_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_lasso_tr, "\n")
-
-# Test
-# True priors
-lasso_old_pr1 = predict(lasso, test, "prob")[,1] 
-pred_r1<-as.numeric(lasso_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_lasso = pred_r1*(true1/rho1)/den 
-pred0_true_lasso = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_lasso_adj=ifelse(pred1_true_lasso>0.4, "phishing","legitimate")
-test$pred_y_lasso_adj <- factor(test$pred_y_lasso_adj, levels = c("phishing", "legitimate"))
-TP_lasso <- sum(test$status == "phishing" & test$pred_y_lasso_adj == "phishing")
-TP_adj_lasso <- (true0/rho0)*TP_lasso
-FP_lasso <- sum(test$status == "legitimate" & test$pred_y_lasso_adj == "phishing")
-FP_adj_lasso <- (true0/rho0)*FP_lasso
-TN_lasso <- sum(test$status == "legitimate" & test$pred_y_lasso_adj == "legitimate")
-TN_adj_lasso <- (true1/rho1)*TN_lasso
-FN_lasso <- sum(test$status == "phishing" & test$pred_y_lasso_adj == "legitimate")
-FN_adj_lasso <- (true1/rho1)*FN_lasso
-accuracy_adj_lasso <- (TP_adj_lasso + TN_adj_lasso) / (TP_adj_lasso + FP_adj_lasso + TN_adj_lasso + FN_adj_lasso)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_lasso, "      ", FN_adj_lasso, "\n",
-    "Legitimate ", FP_adj_lasso, "      ", TN_adj_lasso, "\n\n",
-    "Accuracy: ", accuracy_adj_lasso, "\n")
+adjusted_confusion_matrix(lasso, test, 0.5)
+adjusted_confusion_matrix(lasso, train, 0.5)
 
 # PLS ---------------------------------------------------------------------
 
@@ -520,65 +386,10 @@ pls
 plspred = predict(pls, test)
 plspred_p = predict(pls, test, type = c("prob"))
 
-# Train
-# True priors
-pls_old_pr1_tr = predict(pls, train, "prob")[,1] 
-pred_r1_pls_tr<-as.numeric(pls_old_pr1_tr) 
-pred_r0_pls_tr = 1 - pred_r1_pls_tr 
-den = pred_r1_pls_tr*(true1/rho1)+pred_r0_pls_tr*(true0/rho0) 
-pred1_true_pls_tr = pred_r1_pls_tr*(true1/rho1)/den 
-pred0_true_pls_tr = pred_r0_pls_tr*(true0/rho0)/den
+confusionMatrix(plspred, test$status)
 
-#Adjusted
-train$pred_y_pls_adj_tr=ifelse(pred1_true_pls_tr>0.4, "phishing","legitimate")
-train$pred_y_pls_adj_tr <- factor(train$pred_y_pls_adj_tr, levels = c("phishing", "legitimate"))
-TP_pls_tr <- sum(train$status == "phishing" & train$pred_y_pls_adj_tr == "phishing")
-TP_adj_pls_tr <- (true0/rho0)*TP_pls_tr
-FP_pls_tr <- sum(train$status == "legitimate" & train$pred_y_pls_adj_tr == "phishing")
-FP_adj_pls_tr <- (true0/rho0)*FP_pls_tr
-TN_pls_tr <- sum(train$status == "legitimate" & train$pred_y_pls_adj_tr == "legitimate")
-TN_adj_pls_tr <- (true1/rho1)*TN_pls_tr
-FN_pls_tr <- sum(train$status == "phishing" & train$pred_y_pls_adj_tr == "legitimate")
-FN_adj_pls_tr <- (true1/rho1)*FN_pls_tr
-accuracy_adj_pls_tr <- (TP_adj_pls_tr + TN_adj_pls_tr) / (TP_adj_pls_tr + FP_adj_pls_tr + TN_adj_pls_tr + FN_adj_pls_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_pls_tr, "      ", FN_adj_pls_tr, "\n",
-    "Legitimate ", FP_adj_pls_tr, "      ", TN_adj_pls_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_pls_tr, "\n")
-
-# Test
-# True priors
-pls_old_pr1 = predict(pls, test, "prob")[,1] 
-pred_r1<-as.numeric(pls_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_pls = pred_r1*(true1/rho1)/den 
-pred0_true_pls = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_pls_adj=ifelse(pred1_true_pls>0.4, "phishing","legitimate")
-test$pred_y_pls_adj <- factor(test$pred_y_pls_adj, levels = c("phishing", "legitimate"))
-TP_pls <- sum(test$status == "phishing" & test$pred_y_pls_adj == "phishing")
-TP_adj_pls <- (true0/rho0)*TP_pls
-FP_pls <- sum(test$status == "legitimate" & test$pred_y_pls_adj == "phishing")
-FP_adj_pls <- (true0/rho0)*FP_pls
-TN_pls <- sum(test$status == "legitimate" & test$pred_y_pls_adj == "legitimate")
-TN_adj_pls <- (true1/rho1)*TN_pls
-FN_pls <- sum(test$status == "phishing" & test$pred_y_pls_adj == "legitimate")
-FN_adj_pls <- (true1/rho1)*FN_pls
-accuracy_adj_pls <- (TP_adj_pls + TN_adj_pls) / (TP_adj_pls + FP_adj_pls + TN_adj_pls + FN_adj_pls)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_pls, "      ", FN_adj_pls, "\n",
-    "Legitimate ", FP_adj_pls, "      ", TN_adj_pls, "\n\n",
-    "Accuracy: ", accuracy_adj_pls, "\n")
+adjusted_confusion_matrix(pls, test, 0.5)
+adjusted_confusion_matrix(pls, train, 0.5)
 
 # Naive Bayes -------------------------------------------------------------
 set.seed(9999)
@@ -598,68 +409,13 @@ naivebayes = train(status ~ .,
 
 naivebayes
 
-nbpred = predict(naivebayes, test_selected)
-nbpred_p = predict(naivebayes, test_selected, type = c("prob"))
+nbpred = predict(naivebayes, test)
+nbpred_p = predict(naivebayes, test, type = c("prob"))
 
-# Train
-# True priors
-nb_old_pr1_tr = predict(naivebayes, train, "prob")[,1] 
-pred_r1_nb_tr<-as.numeric(nb_old_pr1_tr) 
-pred_r0_nb_tr = 1 - pred_r1_nb_tr 
-den = pred_r1_nb_tr*(true1/rho1)+pred_r0_nb_tr*(true0/rho0) 
-pred1_true_nb_tr = pred_r1_nb_tr*(true1/rho1)/den 
-pred0_true_nb_tr = pred_r0_nb_tr*(true0/rho0)/den
+confusionMatrix(nbpred, test$status)
 
-#Adjusted
-train$pred_y_nb_adj_tr=ifelse(pred1_true_nb_tr>0.4, "phishing","legitimate")
-train$pred_y_nb_adj_tr <- factor(train$pred_y_nb_adj_tr, levels = c("phishing", "legitimate"))
-TP_nb_tr <- sum(train$status == "phishing" & train$pred_y_nb_adj_tr == "phishing")
-TP_adj_nb_tr <- (true0/rho0)*TP_nb_tr
-FP_nb_tr <- sum(train$status == "legitimate" & train$pred_y_nb_adj_tr == "phishing")
-FP_adj_nb_tr <- (true0/rho0)*FP_nb_tr
-TN_nb_tr <- sum(train$status == "legitimate" & train$pred_y_nb_adj_tr == "legitimate")
-TN_adj_nb_tr <- (true1/rho1)*TN_nb_tr
-FN_nb_tr <- sum(train$status == "phishing" & train$pred_y_nb_adj_tr == "legitimate")
-FN_adj_nb_tr <- (true1/rho1)*FN_nb_tr
-accuracy_adj_nb_tr <- (TP_adj_nb_tr + TN_adj_nb_tr) / (TP_adj_nb_tr + FP_adj_nb_tr + TN_adj_nb_tr + FN_adj_nb_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_nb_tr, "      ", FN_adj_nb_tr, "\n",
-    "Legitimate ", FP_adj_nb_tr, "      ", TN_adj_nb_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_nb_tr, "\n")
-
-# Test
-# True priors
-nb_old_pr1 = predict(naivebayes, test, "prob")[,1] 
-pred_r1<-as.numeric(nb_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_nb = pred_r1*(true1/rho1)/den 
-pred0_true_nb = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_nb_adj=ifelse(pred1_true_nb>0.4, "phishing","legitimate")
-test$pred_y_nb_adj <- factor(test$pred_y_nb_adj, levels = c("phishing", "legitimate"))
-TP_nb <- sum(test$status == "phishing" & test$pred_y_nb_adj == "phishing")
-TP_adj_nb <- (true0/rho0)*TP_nb
-FP_nb <- sum(test$status == "legitimate" & test$pred_y_nb_adj == "phishing")
-FP_adj_nb <- (true0/rho0)*FP_nb
-TN_nb <- sum(test$status == "legitimate" & test$pred_y_nb_adj == "legitimate")
-TN_adj_nb <- (true1/rho1)*TN_nb
-FN_nb <- sum(test$status == "phishing" & test$pred_y_nb_adj == "legitimate")
-FN_adj_nb <- (true1/rho1)*FN_nb
-accuracy_adj_nb <- (TP_adj_nb + TN_adj_nb) / (TP_adj_nb + FP_adj_nb + TN_adj_nb + FN_adj_nb)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_nb, "      ", FN_adj_nb, "\n",
-    "Legitimate ", FP_adj_nb, "      ", TN_adj_nb, "\n\n",
-    "Accuracy: ", accuracy_adj_nb, "\n")
+adjusted_confusion_matrix(naivebayes, test, 0.5)
+adjusted_confusion_matrix(naivebayes, train, 0.5)
 
 # Decision Tree ----------------------------------------
 tree_rpart = rpart(status ~ ., 
@@ -677,69 +433,14 @@ rpart.plot(tree_pruned, type = 4, extra = 1)
 treePred_pruned_p = predict(tree_pruned, test, type = c("prob"))
 treePred_pruned = predict(tree_pruned, test, type = c("class"))
 
-# Train
-# True priors
-tree_old_pr1_tr = predict(tree_pruned, train, "prob")[,1] 
-pred_r1_tree_tr<-as.numeric(tree_old_pr1_tr) 
-pred_r0_tree_tr = 1 - pred_r1_tree_tr 
-den = pred_r1_tree_tr*(true1/rho1)+pred_r0_tree_tr*(true0/rho0) 
-pred1_true_tree_tr = pred_r1_tree_tr*(true1/rho1)/den 
-pred0_true_tree_tr = pred_r0_tree_tr*(true0/rho0)/den
+confusionMatrix(treePred_pruned, test$status)
 
-#Adjusted
-train$pred_y_tree_adj_tr=ifelse(pred1_true_tree_tr>0.4, "phishing","legitimate")
-train$pred_y_tree_adj_tr <- factor(train$pred_y_tree_adj_tr, levels = c("phishing", "legitimate"))
-TP_tree_tr <- sum(train$status == "phishing" & train$pred_y_tree_adj_tr == "phishing")
-TP_adj_tree_tr <- (true0/rho0)*TP_tree_tr
-FP_tree_tr <- sum(train$status == "legitimate" & train$pred_y_tree_adj_tr == "phishing")
-FP_adj_tree_tr <- (true0/rho0)*FP_tree_tr
-TN_tree_tr <- sum(train$status == "legitimate" & train$pred_y_tree_adj_tr == "legitimate")
-TN_adj_tree_tr <- (true1/rho1)*TN_tree_tr
-FN_tree_tr <- sum(train$status == "phishing" & train$pred_y_tree_adj_tr == "legitimate")
-FN_adj_tree_tr <- (true1/rho1)*FN_tree_tr
-accuracy_adj_tree_tr <- (TP_adj_tree_tr + TN_adj_tree_tr) / (TP_adj_tree_tr + FP_adj_tree_tr + TN_adj_tree_tr + FN_adj_tree_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_tree_tr, "      ", FN_adj_tree_tr, "\n",
-    "Legitimate ", FP_adj_tree_tr, "      ", TN_adj_tree_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_tree_tr, "\n")
-
-# Test
-# True priors
-tree_old_pr1 = predict(tree_pruned, test, "prob")[,1] 
-pred_r1<-as.numeric(tree_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_tree = pred_r1*(true1/rho1)/den 
-pred0_true_tree = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_tree_adj=ifelse(pred1_true_tree>0.4, "phishing","legitimate")
-test$pred_y_tree_adj <- factor(test$pred_y_tree_adj, levels = c("phishing", "legitimate"))
-TP_tree <- sum(test$status == "phishing" & test$pred_y_tree_adj == "phishing")
-TP_adj_tree <- (true0/rho0)*TP_tree
-FP_tree <- sum(test$status == "legitimate" & test$pred_y_tree_adj == "phishing")
-FP_adj_tree <- (true0/rho0)*FP_tree
-TN_tree <- sum(test$status == "legitimate" & test$pred_y_tree_adj == "legitimate")
-TN_adj_tree <- (true1/rho1)*TN_tree
-FN_tree <- sum(test$status == "phishing" & test$pred_y_tree_adj == "legitimate")
-FN_adj_tree <- (true1/rho1)*FN_tree
-accuracy_adj_tree <- (TP_adj_tree + TN_adj_tree) / (TP_adj_tree + FP_adj_tree + TN_adj_tree + FN_adj_tree)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_tree, "      ", FN_adj_tree, "\n",
-    "Legitimate ", FP_adj_tree, "      ", TN_adj_tree, "\n\n",
-    "Accuracy: ", accuracy_adj_tree, "\n")
+adjusted_confusion_matrix(tree_pruned, test, 0.5)
+adjusted_confusion_matrix(tree_pruned, train, 0.5)
 
 # Bagging -----------------------------------------------------------------
 set.seed(9999)
-ctrl = trainControl(method = "boot",
+ctrl = trainControl(method = "cv",
                     number = 10,
                     searc = "grid", 
                     summaryFunction = twoClassSummary, 
@@ -756,66 +457,10 @@ bagging
 baggpred = predict(bagging, test)
 baggpred_p = predict(bagging, test, type = c("prob"))
 
+confusionMatrix(baggpred, test$status)
 
-# Train
-# True priors
-bg_old_pr1_tr = predict(bagging, train, "prob")[,1] 
-pred_r1_bg_tr<-as.numeric(bg_old_pr1_tr) 
-pred_r0_bg_tr = 1 - pred_r1_bg_tr 
-den = pred_r1_bg_tr*(true1/rho1)+pred_r0_bg_tr*(true0/rho0) 
-pred1_true_bg_tr = pred_r1_bg_tr*(true1/rho1)/den 
-pred0_true_bg_tr = pred_r0_bg_tr*(true0/rho0)/den
-
-#Adjusted
-train$pred_y_bg_adj_tr=ifelse(pred1_true_bg_tr>0.4, "phishing","legitimate")
-train$pred_y_bg_adj_tr <- factor(train$pred_y_bg_adj_tr, levels = c("phishing", "legitimate"))
-TP_bg_tr <- sum(train$status == "phishing" & train$pred_y_bg_adj_tr == "phishing")
-TP_adj_bg_tr <- (true0/rho0)*TP_bg_tr
-FP_bg_tr <- sum(train$status == "legitimate" & train$pred_y_bg_adj_tr == "phishing")
-FP_adj_bg_tr <- (true0/rho0)*FP_bg_tr
-TN_bg_tr <- sum(train$status == "legitimate" & train$pred_y_bg_adj_tr == "legitimate")
-TN_adj_bg_tr <- (true1/rho1)*TN_bg_tr
-FN_bg_tr <- sum(train$status == "phishing" & train$pred_y_bg_adj_tr == "legitimate")
-FN_adj_bg_tr <- (true1/rho1)*FN_bg_tr
-accuracy_adj_bg_tr <- (TP_adj_bg_tr + TN_adj_bg_tr) / (TP_adj_bg_tr + FP_adj_bg_tr + TN_adj_bg_tr + FN_adj_bg_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_bg_tr, "      ", FN_adj_bg_tr, "\n",
-    "Legitimate ", FP_adj_bg_tr, "      ", TN_adj_bg_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_bg_tr, "\n")
-
-# Test
-# True priors
-bg_old_pr1 = predict(bagging, test, "prob")[,1] 
-pred_r1<-as.numeric(bg_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_bg = pred_r1*(true1/rho1)/den 
-pred0_true_bg = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_bg_adj=ifelse(pred1_true_bg>0.4, "phishing","legitimate")
-test$pred_y_bg_adj <- factor(test$pred_y_bg_adj, levels = c("phishing", "legitimate"))
-TP_bg <- sum(test$status == "phishing" & test$pred_y_bg_adj == "phishing")
-TP_adj_bg <- (true0/rho0)*TP_bg
-FP_bg <- sum(test$status == "legitimate" & test$pred_y_bg_adj == "phishing")
-FP_adj_bg <- (true0/rho0)*FP_bg
-TN_bg <- sum(test$status == "legitimate" & test$pred_y_bg_adj == "legitimate")
-TN_adj_bg <- (true1/rho1)*TN_bg
-FN_bg <- sum(test$status == "phishing" & test$pred_y_bg_adj == "legitimate")
-FN_adj_bg <- (true1/rho1)*FN_bg
-accuracy_adj_bg <- (TP_adj_bg + TN_adj_bg) / (TP_adj_bg + FP_adj_bg + TN_adj_bg + FN_adj_bg)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_bg, "      ", FN_adj_bg, "\n",
-    "Legitimate ", FP_adj_bg, "      ", TN_adj_bg, "\n\n",
-    "Accuracy: ", accuracy_adj_bg, "\n")
+adjusted_confusion_matrix(bagging, test, 0.5)
+adjusted_confusion_matrix(bagging, train, 0.5)
 
 # Gradient Boosting -------------------------------------------------------
 
@@ -844,65 +489,11 @@ gb
 gbpred = predict(gb, test)
 gbpred_p = predict(gb, test, type = c("prob"))
 
-# Train
-# True priors
-gb_old_pr1_tr = predict(gb, train, "prob")[,1] 
-pred_r1_gb_tr<-as.numeric(gb_old_pr1_tr) 
-pred_r0_gb_tr = 1 - pred_r1_gb_tr 
-den = pred_r1_gb_tr*(true1/rho1)+pred_r0_gb_tr*(true0/rho0) 
-pred1_true_gb_tr = pred_r1_gb_tr*(true1/rho1)/den 
-pred0_true_gb_tr = pred_r0_gb_tr*(true0/rho0)/den
+confusionMatrix(gbpred, test$status)
 
-#Adjusted
-train$pred_y_gb_adj_tr=ifelse(pred1_true_gb_tr>0.4, "phishing","legitimate")
-train$pred_y_gb_adj_tr <- factor(train$pred_y_gb_adj_tr, levels = c("phishing", "legitimate"))
-TP_gb_tr <- sum(train$status == "phishing" & train$pred_y_gb_adj_tr == "phishing")
-TP_adj_gb_tr <- (true0/rho0)*TP_gb_tr
-FP_gb_tr <- sum(train$status == "legitimate" & train$pred_y_gb_adj_tr == "phishing")
-FP_adj_gb_tr <- (true0/rho0)*FP_gb_tr
-TN_gb_tr <- sum(train$status == "legitimate" & train$pred_y_gb_adj_tr == "legitimate")
-TN_adj_gb_tr <- (true1/rho1)*TN_gb_tr
-FN_gb_tr <- sum(train$status == "phishing" & train$pred_y_gb_adj_tr == "legitimate")
-FN_adj_gb_tr <- (true1/rho1)*FN_gb_tr
-accuracy_adj_gb_tr <- (TP_adj_gb_tr + TN_adj_gb_tr) / (TP_adj_gb_tr + FP_adj_gb_tr + TN_adj_gb_tr + FN_adj_gb_tr)
+adjusted_confusion_matrix(gb, test, 0.5)
+adjusted_confusion_matrix(gb, train, 0.5)
 
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_gb_tr, "      ", FN_adj_gb_tr, "\n",
-    "Legitimate ", FP_adj_gb_tr, "      ", TN_adj_gb_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_gb_tr, "\n")
-
-# Test
-# True priors
-gb_old_pr1 = predict(gb, test, "prob")[,1] 
-pred_r1<-as.numeric(gb_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_gb = pred_r1*(true1/rho1)/den 
-pred0_true_gb = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_gb_adj=ifelse(pred1_true_gb>0.4, "phishing","legitimate")
-test$pred_y_gb_adj <- factor(test$pred_y_gb_adj, levels = c("phishing", "legitimate"))
-TP_gb <- sum(test$status == "phishing" & test$pred_y_gb_adj == "phishing")
-TP_adj_gb <- (true0/rho0)*TP_gb
-FP_gb <- sum(test$status == "legitimate" & test$pred_y_gb_adj == "phishing")
-FP_adj_gb <- (true0/rho0)*FP_gb
-TN_gb <- sum(test$status == "legitimate" & test$pred_y_gb_adj == "legitimate")
-TN_adj_gb <- (true1/rho1)*TN_gb
-FN_gb <- sum(test$status == "phishing" & test$pred_y_gb_adj == "legitimate")
-FN_adj_gb <- (true1/rho1)*FN_gb
-accuracy_adj_gb <- (TP_adj_gb + TN_adj_gb) / (TP_adj_gb + FP_adj_gb + TN_adj_gb + FN_adj_gb)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_gb, "      ", FN_adj_gb, "\n",
-    "Legitimate ", FP_adj_gb, "      ", TN_adj_gb, "\n\n",
-    "Accuracy: ", accuracy_adj_gb, "\n")
 
 # Random Forest -----------------------------------------------------------
 
@@ -927,76 +518,10 @@ plot(rf)
 rfpred = predict(rf, test)
 rfpred_p = predict(rf, test, type = c("prob"))
 
-# Train
-# True priors
-rf_old_pr1_tr = predict(rf, train, "prob")[,1] 
-pred_r1_rf_tr<-as.numeric(rf_old_pr1_tr) 
-pred_r0_rf_tr = 1 - pred_r1_rf_tr 
-den = pred_r1_rf_tr*(true1/rho1)+pred_r0_rf_tr*(true0/rho0) 
-pred1_true_rf_tr = pred_r1_rf_tr*(true1/rho1)/den 
-pred0_true_rf_tr = pred_r0_rf_tr*(true0/rho0)/den
+confusionMatrix(rfpred, test$status)
 
-#Adjusted
-train$pred_y_rf_adj_tr=ifelse(pred1_true_rf_tr>0.4, "phishing","legitimate")
-train$pred_y_rf_adj_tr <- factor(train$pred_y_rf_adj_tr, levels = c("phishing", "legitimate"))
-TP_rf_tr <- sum(train$status == "phishing" & train$pred_y_rf_adj_tr == "phishing")
-TP_adj_rf_tr <- (true0/rho0)*TP_rf_tr
-FP_rf_tr <- sum(train$status == "legitimate" & train$pred_y_rf_adj_tr == "phishing")
-FP_adj_rf_tr <- (true0/rho0)*FP_rf_tr
-TN_rf_tr <- sum(train$status == "legitimate" & train$pred_y_rf_adj_tr == "legitimate")
-TN_adj_rf_tr <- (true1/rho1)*TN_rf_tr
-FN_rf_tr <- sum(train$status == "phishing" & train$pred_y_rf_adj_tr == "legitimate")
-FN_adj_rf_tr <- (true1/rho1)*FN_rf_tr
-accuracy_adj_rf_tr <- (TP_adj_rf_tr + TN_adj_rf_tr) / (TP_adj_rf_tr + FP_adj_rf_tr + TN_adj_rf_tr + FN_adj_rf_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_rf_tr, "      ", FN_adj_rf_tr, "\n",
-    "Legitimate ", FP_adj_rf_tr, "      ", TN_adj_rf_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_rf_tr, "\n")
-
-# Test
-# True priors
-rf_old_pr1 = predict(rf, test, "prob")[,1] 
-pred_r1<-as.numeric(rf_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_rf = pred_r1*(true1/rho1)/den 
-pred0_true_rf = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_rf_adj=ifelse(pred1_true_rf>0.4, "phishing","legitimate")
-test$pred_y_rf_adj <- factor(test$pred_y_rf_adj, levels = c("phishing", "legitimate"))
-TP_rf <- sum(test$status == "phishing" & test$pred_y_rf_adj == "phishing")
-TP_adj_rf <- (true0/rho0)*TP_rf
-FP_rf <- sum(test$status == "legitimate" & test$pred_y_rf_adj == "phishing")
-FP_adj_rf <- (true0/rho0)*FP_rf
-TN_rf <- sum(test$status == "legitimate" & test$pred_y_rf_adj == "legitimate")
-TN_adj_rf <- (true1/rho1)*TN_rf
-FN_rf <- sum(test$status == "phishing" & test$pred_y_rf_adj == "legitimate")
-FN_adj_rf <- (true1/rho1)*FN_rf
-accuracy_adj_rf <- (TP_adj_rf + TN_adj_rf) / (TP_adj_rf + FP_adj_rf + TN_adj_rf + FN_adj_rf)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_rf, "      ", FN_adj_rf, "\n",
-    "Legitimate ", FP_adj_rf, "      ", TN_adj_rf, "\n\n",
-    "Accuracy: ", accuracy_adj_rf, "\n")
-
-# Permutation Importance
-vImp = varImp(rf)
-plot(varImp(object = rf), main = "Train Tuned - Variable Importnace")
-vImp = data.frame(vImp[1])
-vImp$var=row.names(vImp)
-head(vImp)
-
-# Select covariate with Importance > 30% than most important
-vImp2 = vImp[vImp$Overall>30,]
-head(vImp2)
+adjusted_confusion_matrix(rf, test, 0.5)
+adjusted_confusion_matrix(rf, train, 0.5)
 
 # NN ----------------------------------------------------------------------
 
@@ -1048,65 +573,10 @@ getTrainPerf(nn_tuned)
 nn_tunedPred_p = predict(nn_tuned, test_selected, type = c("prob"))
 nn_tunedPred = predict(nn_tuned, test_selected)
 
-# Train
-# True priors
-nn_old_pr1_tr = predict(nn_tuned, train, "prob")[,1] 
-pred_r1_nn_tr<-as.numeric(nn_old_pr1_tr) 
-pred_r0_nn_tr = 1 - pred_r1_nn_tr 
-den = pred_r1_nn_tr*(true1/rho1)+pred_r0_nn_tr*(true0/rho0) 
-pred1_true_nn_tr = pred_r1_nn_tr*(true1/rho1)/den 
-pred0_true_nn_tr = pred_r0_nn_tr*(true0/rho0)/den
+confusionMatrix(nn_tunedPred, test$status)
 
-#Adjusted
-train$pred_y_nn_adj_tr=ifelse(pred1_true_nn_tr>0.4, "phishing","legitimate")
-train$pred_y_nn_adj_tr <- factor(train$pred_y_nn_adj_tr, levels = c("phishing", "legitimate"))
-TP_nn_tr <- sum(train$status == "phishing" & train$pred_y_nn_adj_tr == "phishing")
-TP_adj_nn_tr <- (true0/rho0)*TP_nn_tr
-FP_nn_tr <- sum(train$status == "legitimate" & train$pred_y_nn_adj_tr == "phishing")
-FP_adj_nn_tr <- (true0/rho0)*FP_nn_tr
-TN_nn_tr <- sum(train$status == "legitimate" & train$pred_y_nn_adj_tr == "legitimate")
-TN_adj_nn_tr <- (true1/rho1)*TN_nn_tr
-FN_nn_tr <- sum(train$status == "phishing" & train$pred_y_nn_adj_tr == "legitimate")
-FN_adj_nn_tr <- (true1/rho1)*FN_nn_tr
-accuracy_adj_nn_tr <- (TP_adj_nn_tr + TN_adj_nn_tr) / (TP_adj_nn_tr + FP_adj_nn_tr + TN_adj_nn_tr + FN_adj_nn_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_nn_tr, "      ", FN_adj_nn_tr, "\n",
-    "Legitimate ", FP_adj_nn_tr, "      ", TN_adj_nn_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_nn_tr, "\n")
-
-# Test
-# True priors
-nn_old_pr1 = predict(nn_tuned, test, "prob")[,1] 
-pred_r1<-as.numeric(nn_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_nn = pred_r1*(true1/rho1)/den 
-pred0_true_nn = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_nn_adj=ifelse(pred1_true_nn>0.4, "phishing","legitimate")
-test$pred_y_nn_adj <- factor(test$pred_y_nn_adj, levels = c("phishing", "legitimate"))
-TP_nn <- sum(test$status == "phishing" & test$pred_y_nn_adj == "phishing")
-TP_adj_nn <- (true0/rho0)*TP_nn
-FP_nn <- sum(test$status == "legitimate" & test$pred_y_nn_adj == "phishing")
-FP_adj_nn <- (true0/rho0)*FP_nn
-TN_nn <- sum(test$status == "legitimate" & test$pred_y_nn_adj == "legitimate")
-TN_adj_nn <- (true1/rho1)*TN_nn
-FN_nn <- sum(test$status == "phishing" & test$pred_y_nn_adj == "legitimate")
-FN_adj_nn <- (true1/rho1)*FN_nn
-accuracy_adj_nn <- (TP_adj_nn + TN_adj_nn) / (TP_adj_nn + FP_adj_nn + TN_adj_nn + FN_adj_nn)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_nn, "      ", FN_adj_nn, "\n",
-    "Legitimate ", FP_adj_nn, "      ", TN_adj_nn, "\n\n",
-    "Accuracy: ", accuracy_adj_nn, "\n")
+adjusted_confusion_matrix(nn_tuned, test, 0.5)
+adjusted_confusion_matrix(nn_tuned, train, 0.5)
 
 # Stacking ----------------------------------------------------------------
 #GLM
@@ -1142,66 +612,10 @@ CF = coef(glm_ensemble$ens_model$finalModel)[-1]
 colAUC(model_preds$ensemble, test_selected$status)
 confusionMatrix(model_preds2$ensemble, test_selected$status)
 
-# Train
-# True priors
-ens_old_pr1_tr = predict(glm_ensemble, train, "prob")[,1] 
-pred_r1_ens_tr<-as.numeric(ens_old_pr1_tr) 
-pred_r0_ens_tr = 1 - pred_r1_ens_tr 
-den = pred_r1_ens_tr*(true1/rho1)+pred_r0_ens_tr*(true0/rho0) 
-pred1_true_ens_tr = pred_r1_ens_tr*(true1/rho1)/den 
-pred0_true_ens_tr = pred_r0_ens_tr*(true0/rho0)/den
+confusionMatrix(model_preds2$ensemble, test$status)
 
-#Adjusted
-train$pred_y_ens_adj_tr=ifelse(pred1_true_ens_tr>0.4, "phishing","legitimate")
-train$pred_y_ens_adj_tr <- factor(train$pred_y_ens_adj_tr, levels = c("phishing", "legitimate"))
-TP_ens_tr <- sum(train$status == "phishing" & train$pred_y_ens_adj_tr == "phishing")
-TP_adj_ens_tr <- (true0/rho0)*TP_ens_tr
-FP_ens_tr <- sum(train$status == "legitimate" & train$pred_y_ens_adj_tr == "phishing")
-FP_adj_ens_tr <- (true0/rho0)*FP_ens_tr
-TN_ens_tr <- sum(train$status == "legitimate" & train$pred_y_ens_adj_tr == "legitimate")
-TN_adj_ens_tr <- (true1/rho1)*TN_ens_tr
-FN_ens_tr <- sum(train$status == "phishing" & train$pred_y_ens_adj_tr == "legitimate")
-FN_adj_ens_tr <- (true1/rho1)*FN_ens_tr
-accuracy_adj_ens_tr <- (TP_adj_ens_tr + TN_adj_ens_tr) / (TP_adj_ens_tr + FP_adj_ens_tr + TN_adj_ens_tr + FN_adj_ens_tr)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_ens_tr, "      ", FN_adj_ens_tr, "\n",
-    "Legitimate ", FP_adj_ens_tr, "      ", TN_adj_ens_tr, "\n\n",
-    "Accuracy: ", accuracy_adj_ens_tr, "\n")
-
-# Test
-# True priors
-ens_old_pr1 = predict(glm_ensemble, test, "prob")[,1] 
-pred_r1<-as.numeric(ens_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_ens = pred_r1*(true1/rho1)/den 
-pred0_true_ens = pred_r0*(true0/rho0)/den
-
-#Adjusted
-test$pred_y_ens_adj=ifelse(pred1_true_ens>0.4, "phishing","legitimate")
-test$pred_y_ens_adj <- factor(test$pred_y_ens_adj, levels = c("phishing", "legitimate"))
-TP_ens <- sum(test$status == "phishing" & test$pred_y_ens_adj == "phishing")
-TP_adj_ens <- (true0/rho0)*TP_ens
-FP_ens <- sum(test$status == "legitimate" & test$pred_y_ens_adj == "phishing")
-FP_adj_ens <- (true0/rho0)*FP_ens
-TN_ens <- sum(test$status == "legitimate" & test$pred_y_ens_adj == "legitimate")
-TN_adj_ens <- (true1/rho1)*TN_ens
-FN_ens <- sum(test$status == "phishing" & test$pred_y_ens_adj == "legitimate")
-FN_adj_ens <- (true1/rho1)*FN_ens
-accuracy_adj_ens <- (TP_adj_ens + TN_adj_ens) / (TP_adj_ens + FP_adj_ens + TN_adj_ens + FN_adj_ens)
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n",
-    "               Predetto\n",
-    "Reale   Phishing Legitimate\n",
-    "Phishing ", TP_adj_ens, "      ", FN_adj_ens, "\n",
-    "Legitimate ", FP_adj_ens, "      ", TN_adj_ens, "\n\n",
-    "Accuracy: ", accuracy_adj_ens, "\n")
-
+adjusted_confusion_matrix(glm_ensemble, test, 0.5)
+adjusted_confusion_matrix(glm_ensemble, train, 0.5)
 
 # Confronto modelli ROC ------------------------------------------------------------------
 
@@ -1413,6 +827,7 @@ copy$rf= pred0_true_rf
 gain_lift(data = copy, score='rf', target='status')
 
 # Step 3 ------------------------------------------------------------------
+
 # Random Forest
 y = test$status
 rfPredR = prediction(rfpred_p[,1], y)
@@ -1440,33 +855,10 @@ lines(thresholds, sens.values, col="green")
 legend("bottomright", legend=c("Accuracy", "Specificity", "Sensitivity"),
        col=c("dodgerblue", "darkorange", "green"),
        lty=1, cex=0.8, text.font=4, y.intersp=1.2, x.intersp=1.2, lwd=2)
+abline(v = 0.4, lwd = 2, col = "red") 
+text(x = 0.6, y = 0.5, labels = "Optimal Threshold", col = "red") 
 
-# Unadjusted
-test$pred_y=ifelse(rfpred_p[,1]>0.4, "phishing","legitimate")
-test$pred_y <- factor(test$pred_y, levels = c("phishing", "legitimate"))
-confusionMatrix(test$pred_y, test$status)
-
-#Adjusted
-test$pred_y_adj=ifelse(pred1_true_rf>0.4, "phishing","legitimate")
-test$pred_y_adj <- factor(test$pred_y_adj, levels = c("phishing", "legitimate"))
-TP <- sum(test$status == "phishing" & test$pred_y == "phishing")
-TP_adj <- (true0/rho0)*TP
-FP <- sum(test$status == "legitimate" & test$pred_y == "phishing")
-FP_adj <- (true0/rho0)*FP
-TN <- sum(test$status == "legitimate" & test$pred_y == "legitimate")
-TN_adj <- (true1/rho1)*TN
-FN <- sum(test$status == "phishing" & test$pred_y == "legitimate")
-FN_adj <- (true1/rho1)*FN
-accuracy_adj <- (TP_adj + TN_adj) / (TP_adj + FP_adj + TN_adj + FN_adj )
-
-# Stampa della matrice di confusione e delle metriche
-cat("Matrice di Confusione aggiustata:\n")
-cat("               Predetto\n")
-cat("Reale   Phishing Legitimate\n")
-cat("Phishing ", TP_adj, "      ", FN_adj, "\n")
-cat("Legitimate ", FP_adj, "      ", TN_adj, "\n\n")
-
-cat("Accuracy: ", accuracy_adj, "\n")
+adjusted_confusion_matrix(rf, test, 0.4)
 
 # Step 4 ------------------------------------------------------------------
 
