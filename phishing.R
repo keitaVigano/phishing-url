@@ -494,6 +494,13 @@ confusionMatrix(gbpred, test$status)
 adjusted_confusion_matrix(gb, test, 0.5)
 adjusted_confusion_matrix(gb, train, 0.5)
 
+# True priors
+gb_old_pr1 = predict(gb, test, "prob")[,1] 
+pred_r1_gb<-as.numeric(gb_old_pr1) 
+pred_r0_gb = 1 - pred_r1 
+den = pred_r1_gb*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_gb = pred_r1_gb*(true1/rho1)/den 
+pred0_true_gb = pred_r0_gb*(true0/rho0)/den
 
 # Random Forest -----------------------------------------------------------
 
@@ -522,6 +529,14 @@ confusionMatrix(rfpred, test$status)
 
 adjusted_confusion_matrix(rf, test, 0.5)
 adjusted_confusion_matrix(rf, train, 0.5)
+
+# True priors
+rf_old_pr1 = predict(rf, test, "prob")[,1] 
+pred_r1<-as.numeric(rf_old_pr1) 
+pred_r0 = 1 - pred_r1 
+den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_rf = pred_r1*(true1/rho1)/den 
+pred0_true_rf = pred_r0*(true0/rho0)/den
 
 # NN ----------------------------------------------------------------------
 
@@ -616,6 +631,15 @@ confusionMatrix(model_preds2$ensemble, test$status)
 
 adjusted_confusion_matrix(glm_ensemble, test, 0.5)
 adjusted_confusion_matrix(glm_ensemble, train, 0.5)
+
+# True priors
+set.seed(42)
+ens_old_pr1 = model_preds$ensemble
+pred_r1<-as.numeric(ens_old_pr1) 
+pred_r0 = 1 - pred_r1 
+den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_ens = pred_r1*(true1/rho1)/den 
+pred0_true_ens = pred_r0*(true0/rho0)/den
 
 # Confronto modelli ROC ------------------------------------------------------------------
 
