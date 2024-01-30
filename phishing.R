@@ -102,12 +102,13 @@ p3 <- plot_gg1(ratio_intErrors)
 p4 <- plot_gg1(ratio_intRedirection)
 p5 <- plot_gg1(submit_email)
 p6 <- plot_gg1(sfh)
+p7 <- plot_gg1(nb_or)
 
 # Combina i grafici in una griglia
-grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 3)
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol = 3)
 
 #Eliminazioni delle variabili problematiche
-train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url))
+train <- subset(train, select = -c(statistical_report, ratio_nullHyperlinks, nb_or, ratio_intErrors,ratio_intRedirection,submit_email,sfh,url))
 score <- subset(score, select = -c(status))
 
 
@@ -195,11 +196,12 @@ vars_list <- c(
   "web_traffic",
   "dns_record",
   #"google_index",
-  "page_rank",
+  #"page_rank",
   'status'
 )
 
 train_selected = train[,vars_list]
+train <- subset(train, select = -c(google_index,page_rank))
 
 # Verifica Separation -----------------------------------------------------
 
@@ -244,14 +246,65 @@ plot_all_variables_in_grids <- function(data, status_var) {
 # Utilizzo della funzione
 plot_all_variables_in_grids(train, "status")
 
+# google_index
+ggplot(train, aes(x = status, fill = google_index)) +
+  geom_bar(position = "dodge") 
+
+# page_rank
+ggplot(train, aes(x = status, y = page_rank)) +
+  geom_boxplot() +
+  theme(plot.title = element_text(size = 20), 
+        axis.title = element_text(size = 14), 
+        axis.text = element_text(size = 12))
+
+# nb_hyperlinks
+ggplot(train, aes(x = status, y = nb_hyperlinks)) +
+  geom_boxplot() +
+  theme(plot.title = element_text(size = 20), 
+        axis.title = element_text(size = 14), 
+        axis.text = element_text(size = 12))
 
 # Funzione matrice confusione corretta ------------------------------------
 
 adjusted_confusion_matrix <- function(model, test_data, soglia) {
-  
+  set.seed(9999)
   glmpred_probs <- predict(model, test_data, type = "prob")
   
   glmpred <- glmpred_probs[, 1]
+  
+  test_data$pred_y_glm_adj <- ifelse(glmpred > soglia, "phishing", "legitimate")
+  test_data$pred_y_glm_adj <- factor(test_data$pred_y_glm_adj, levels = c("phishing", "legitimate"))
+  
+  conf_mat <- confusionMatrix(test_data$pred_y_glm_adj, test_data$status)
+  true_positives <- conf_mat$table[1, 1]
+  false_positives <- conf_mat$table[1, 2]
+  false_negatives <- conf_mat$table[2, 1]
+  true_negatives <- conf_mat$table[2, 2]
+  
+  TP_adj <- (true1 / rho1) * true_positives
+  FP_adj <- (true0 / rho0) * false_positives
+  TN_adj <- (true0 / rho0) * true_negatives
+  FN_adj <- (true1 / rho1) * false_negatives
+  accuracy_adj <- (TP_adj + TN_adj) / (TP_adj + FP_adj + TN_adj + FN_adj)
+  
+  sensitivity_adj <- TP_adj / (TP_adj + FN_adj)
+  specificity_adj <- TN_adj / (TN_adj + FP_adj)
+  
+  cat("Matrice di Confusione aggiustata:\n",
+      "               Predetto\n",
+      "Reale   Phishing Legitimate\n",
+      "Phishing ", TP_adj, "      ", FN_adj, "\n",
+      "Legitimate ", FP_adj, "      ", TN_adj, "\n\n",
+      "Accuracy: ", accuracy_adj, "\n",
+      "Sensitivity: ", sensitivity_adj, "\n",
+      "Specificity: ", specificity_adj, "\n")
+}
+
+adjusted_confusion_matrix_stacking<- function(model, test_data, soglia) {
+  set.seed(9999)
+  glmpred_probs <- predict(model, test_data, type = "prob")
+  
+  glmpred <- glmpred_probs
   
   test_data$pred_y_glm_adj <- ifelse(glmpred > soglia, "phishing", "legitimate")
   test_data$pred_y_glm_adj <- factor(test_data$pred_y_glm_adj, levels = c("phishing", "legitimate"))
@@ -329,9 +382,6 @@ knn
 
 knnpred = predict(knn, test)
 knnpred_p = predict(knn, test, type = c("prob"))
-
-confusionMatrix(knnpred, test$status)
-
 adjusted_confusion_matrix(knn, test, 0.5)
 adjusted_confusion_matrix(knn, train, 0.5)
 
@@ -359,8 +409,6 @@ lasso
 lassopred = predict(lasso, test)
 lassopred_p = predict(lasso, test, type = c("prob"))
 
-confusionMatrix(lassopred, test$status)
-
 adjusted_confusion_matrix(lasso, test, 0.5)
 adjusted_confusion_matrix(lasso, train, 0.5)
 
@@ -386,7 +434,6 @@ pls
 plspred = predict(pls, test)
 plspred_p = predict(pls, test, type = c("prob"))
 
-confusionMatrix(plspred, test$status)
 
 adjusted_confusion_matrix(pls, test, 0.5)
 adjusted_confusion_matrix(pls, train, 0.5)
@@ -411,8 +458,6 @@ naivebayes
 
 nbpred = predict(naivebayes, test)
 nbpred_p = predict(naivebayes, test, type = c("prob"))
-
-confusionMatrix(nbpred, test$status)
 
 adjusted_confusion_matrix(naivebayes, test, 0.5)
 adjusted_confusion_matrix(naivebayes, train, 0.5)
@@ -489,18 +534,16 @@ gb
 gbpred = predict(gb, test)
 gbpred_p = predict(gb, test, type = c("prob"))
 
-confusionMatrix(gbpred, test$status)
-
 adjusted_confusion_matrix(gb, test, 0.5)
 adjusted_confusion_matrix(gb, train, 0.5)
 
 # True priors
 gb_old_pr1 = predict(gb, test, "prob")[,1] 
 pred_r1_gb<-as.numeric(gb_old_pr1) 
-pred_r0_gb = 1 - pred_r1 
-den = pred_r1_gb*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_gb = pred_r1_gb*(true1/rho1)/den 
-pred0_true_gb = pred_r0_gb*(true0/rho0)/den
+pred_r0_gb = 1 - pred_r1_gb 
+den_gb = pred_r1_gb*(true1/rho1)+pred_r0_gb*(true0/rho0) 
+pred1_true_gb = pred_r1_gb*(true1/rho1)/den_gb 
+pred0_true_gb = pred_r0_gb*(true0/rho0)/den_gb
 
 # Random Forest -----------------------------------------------------------
 
@@ -525,18 +568,17 @@ plot(rf)
 rfpred = predict(rf, test)
 rfpred_p = predict(rf, test, type = c("prob"))
 
-confusionMatrix(rfpred, test$status)
 
 adjusted_confusion_matrix(rf, test, 0.5)
 adjusted_confusion_matrix(rf, train, 0.5)
 
 # True priors
 rf_old_pr1 = predict(rf, test, "prob")[,1] 
-pred_r1<-as.numeric(rf_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_rf = pred_r1*(true1/rho1)/den 
-pred0_true_rf = pred_r0*(true0/rho0)/den
+pred_r1_rf <-as.numeric(rf_old_pr1) 
+pred_r0_rf = 1 - pred_r1_rf
+den_rf = pred_r1_rf*(true1/rho1)+pred_r0_rf*(true0/rho0) 
+pred1_true_rf = pred_r1_rf*(true1/rho1)/den_rf 
+pred0_true_rf = pred_r0_rf*(true0/rho0)/den_rf
 
 # NN ----------------------------------------------------------------------
 
@@ -559,8 +601,11 @@ plot(nn)
 print(nn)
 getTrainPerf(nn)
 
-nnPred_p = predict(nn, test_selected, type = c("prob"))
-nnPred = predict(nn, test_selected)
+nnPred_p = predict(nn, test, type = c("prob"))
+nnPred = predict(nn,test)
+
+adjusted_confusion_matrix(nn, test, 0.5)
+adjusted_confusion_matrix(nn, train, 0.5)
 
 #nn tuned
 cvCtrl = trainControl(method = "cv", 
@@ -585,8 +630,8 @@ plot(nn_tuned)
 print(nn_tuned)
 getTrainPerf(nn_tuned)
 
-nn_tunedPred_p = predict(nn_tuned, test_selected, type = c("prob"))
-nn_tunedPred = predict(nn_tuned, test_selected)
+nn_tunedPred_p = predict(nn_tuned, test, type = c("prob"))
+nn_tunedPred = predict(nn_tuned, test)
 
 confusionMatrix(nn_tunedPred, test$status)
 
@@ -605,7 +650,7 @@ cvCtrl = trainControl(method = "cv",
 model_list = caretList(status ~.,
                        data = train,
                        trControl = cvCtrl,
-                       methodList = c("glm", "knn", "naive_bayes","rf", "nne")
+                       methodList = c("glm", "knn", "naive_bayes","rf")
  )
 
 # modelli <- list("rf"=rf, "glm"=glm, "nne"=nn, "naive_bayes"=naivebayes, "knn"=knn)
@@ -624,22 +669,21 @@ model_preds2 = model_preds
 model_preds$ensemble = predict(glm_ensemble, newdata = test, type="prob" )
 model_preds2$ensemble = predict(glm_ensemble, newdata = test)
 CF = coef(glm_ensemble$ens_model$finalModel)[-1]
-colAUC(model_preds$ensemble, test_selected$status)
-confusionMatrix(model_preds2$ensemble, test_selected$status)
+#colAUC(model_preds$ensemble, test_selected$status)
+#confusionMatrix(model_preds2$ensemble, test_selected$status)
 
-confusionMatrix(model_preds2$ensemble, test$status)
+#confusionMatrix(model_preds2$ensemble, test$status)
 
-adjusted_confusion_matrix(glm_ensemble, test, 0.5)
-adjusted_confusion_matrix(glm_ensemble, train, 0.5)
-
+adjusted_confusion_matrix_stacking(glm_ensemble, test, 0.5)
+adjusted_confusion_matrix_stacking(glm_ensemble, train, 0.5)
 # True priors
 set.seed(42)
 ens_old_pr1 = model_preds$ensemble
-pred_r1<-as.numeric(ens_old_pr1) 
-pred_r0 = 1 - pred_r1 
-den = pred_r1*(true1/rho1)+pred_r0*(true0/rho0) 
-pred1_true_ens = pred_r1*(true1/rho1)/den 
-pred0_true_ens = pred_r0*(true0/rho0)/den
+pred_r1_stack<-as.numeric(ens_old_pr1) 
+pred_r0 = 1 - pred_r1_stack 
+den_stack = pred_r1_stack*(true1/rho1)+pred_r0*(true0/rho0) 
+pred1_true_ens = pred_r1_stack*(true1/rho1)/den_stack 
+pred0_true_ens = pred_r0*(true0/rho0)/den_stack
 
 # Confronto modelli ROC ------------------------------------------------------------------
 
@@ -683,7 +727,7 @@ plot(roc_tree)
 abline(a=0, b= 1)
 
 # Gradient Boosting 
-rfPredR = prediction(rfpred_p[,1], y)
+gbPredR = prediction(gbpred_p[,1], y)
 roc_gb = performance(gbPredR, measure = "tpr", x.measure = "fpr")
 plot(roc_gb)
 abline(a=0, b= 1)
@@ -718,12 +762,6 @@ roc_glm_s = performance(glm_sPredR, measure = "tpr", x.measure = "fpr")
 plot(roc_glm_s)
 abline(a=0, b= 1)
 
-
-# Stacking (GBM) 
-gbm_sPredR = prediction(model_preds3$ensemble, y)
-roc_gbm_s = performance(gbm_sPredR, measure = "tpr", x.measure = "fpr")
-plot(roc_gbm_s)
-abline(a=0, b= 1)
 
 
 # Function to extract data from a ROC object
@@ -760,8 +798,6 @@ ggplot(roc_data, aes(x = 1 - specificity, y = sensitivity, color = method)) +
         legend.text = element_text(size = 10),
         legend.key.size = unit(1.2, "lines"))
 
-
-
 # met2
 plot(roc_log, col = "dodgerblue", lwd = 2) 
 par(new = TRUE)
@@ -781,7 +817,6 @@ plot(roc_pls, col = "yellow", lwd = 2)
 par(new = TRUE)
 plot(roc_bagging, col = "darkblue", lwd = 2) 
 par(new = TRUE)
-
 
 legend("bottomright", legend=c("logit", "gb", "rf", "nn", "knn", "glmstack","Lasso","Pls","Bagging"),
        col=c("dodgerblue", "darkorange", "green", "purple", "yellow4", "red","pink","yellow",'darkblue'),
@@ -869,20 +904,24 @@ sens.values = sens.perf@y.values[[1]]
 thresholds = acc.perf@x.values[[1]]
 
 # Creazione del grafico
-plot(thresholds, acc.values, type="l", col="dodgerblue", 
+plot(thresholds, spec.values, type="l", col="dodgerblue", 
      main="Performance Metrics vs Threshold", xlab="Threshold", ylab="Metrics",
      ylim=range(c(acc.values, spec.values, sens.values)))
-lines(thresholds, spec.values, col="darkorange")
+#lines(thresholds, spec.values, col="darkorange")
 lines(thresholds, sens.values, col="green")
 
 # Aggiunta della legenda
-legend("bottomright", legend=c("Accuracy", "Specificity", "Sensitivity"),
-       col=c("dodgerblue", "darkorange", "green"),
+legend("bottomright", legend=c("Specificity", "Sensitivity"),
+       col=c("dodgerblue", "green"),
        lty=1, cex=0.8, text.font=4, y.intersp=1.2, x.intersp=1.2, lwd=2)
 abline(v = 0.4, lwd = 2, col = "red") 
 text(x = 0.6, y = 0.5, labels = "Optimal Threshold", col = "red") 
 
 adjusted_confusion_matrix(rf, test, 0.4)
+
+# Importanza delle variabili
+Vimportance <- varImp(rf)
+plot(Vimportance, top=10)
 
 # Step 4 ------------------------------------------------------------------
 
@@ -894,3 +933,9 @@ pred1_true_rf_score = pred_r1_score*(true1/rho1)/den
 pred0_true_rf_score = pred_r0_score*(true0/rho0)/den
 score$pred_y=ifelse(pred1_true_rf_score>0.4, "phishing","legitimate")
 head(score)
+
+# Grafico
+ggplot(score, aes(x = pred_y, fill = pred_y)) +
+  geom_bar(width = 0.5) +
+  geom_text(stat = 'count', aes(label = ..count..), vjust = -0.5, position = position_stack(vjust = 0.5)) +
+  theme_minimal() 
